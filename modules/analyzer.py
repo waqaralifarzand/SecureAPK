@@ -9,7 +9,8 @@ import logging
 from dataclasses import dataclass, asdict
 
 from modules import (
-    db_manager, dynamic_analyzer, forensic, manifest_analyzer, source_analyzer,
+    db_manager, dynamic_analyzer, forensic, manifest_analyzer, risk_engine,
+    source_analyzer,
 )
 
 
@@ -107,9 +108,19 @@ def run_analysis(analysis_id: str, apk_path: str, options: AnalysisOptions) -> N
             log.info("Phase 7 (SBP) not implemented yet for analysis %s", analysis_id)
         db_manager.set_progress(analysis_id, 80)
 
-        # Placeholder for Phase 5 (Risk).
+        # Phase 5 — Risk scoring + OWASP/CWE aggregation.
         db_manager.set_current_phase(analysis_id, 5)
-        log.info("Phase 5 (risk) not implemented yet for analysis %s", analysis_id)
+        risk = risk_engine.compute(analysis_id)
+        db_manager.save_risk(analysis_id, risk)
+        forensic.audit(
+            "phase_5_completed",
+            analysis_id,
+            details={
+                "score": risk["normalized_score"],
+                "classification": risk["classification"],
+                "owasp": risk["owasp_categories_triggered"],
+            },
+        )
         db_manager.set_progress(analysis_id, 90)
 
         # Placeholder for Phase 6 (PDF).

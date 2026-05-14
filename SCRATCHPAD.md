@@ -15,14 +15,14 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 | 1 — Foundation | ✅ Merged | 2026-05-14 | 2026-05-14 | [#1](https://github.com/waqaralifarzand/SecureAPK/pull/1) |
 | 2 — Manifest Analyzer | ✅ Merged | 2026-05-14 | 2026-05-14 | [#2](https://github.com/waqaralifarzand/SecureAPK/pull/2) |
 | 3 — Source Code Analyzer | ✅ Merged | 2026-05-14 | 2026-05-14 | [#3](https://github.com/waqaralifarzand/SecureAPK/pull/3) |
-| 4 — Dynamic Analyzer | 🔄 PR open | 2026-05-14 | 2026-05-14 | _(see entry below)_ |
-| 5 — Risk Engine + OWASP/CWE | ⬜ Not started | — | — | — |
+| 4 — Dynamic Analyzer | ✅ Merged | 2026-05-14 | 2026-05-14 | [#4](https://github.com/waqaralifarzand/SecureAPK/pull/4) |
+| 5 — Risk Engine + OWASP/CWE | 🔄 PR open | 2026-05-14 | 2026-05-14 | _(see entry below)_ |
 | 6 — PDF Reports + Forensic | ⬜ Not started | — | — | — |
 | 7 — SBP Banking Compliance | ⬜ Not started | — | — | — |
 | 8 — Educational Mode | ⬜ Not started | — | — | — |
 | 9 — Testing & Polish | ⬜ Not started | — | — | — |
 
-**Running test count:** 22 / 34 target
+**Running test count:** 26 / 34 target
 
 ---
 
@@ -30,7 +30,7 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 
 - **Repo:** https://github.com/waqaralifarzand/SecureAPK
 - **Default branch:** `main`
-- **Active branch:** `phase-4-dynamic-analyzer` (Phase 4)
+- **Active branch:** `phase-5-risk-engine` (Phase 5)
 - **Local dev URL:** http://127.0.0.1:5000 _(when `python app.py` is running)_
 
 ---
@@ -444,7 +444,84 @@ coded status banner (green/amber/red) that maps `completed` / `partial` /
 
 ### Phase 5 — Risk Engine + OWASP/CWE Mapping
 
-_Not yet started._
+**Branch:** `phase-5-risk-engine`
+**PR:** _(opened as draft, URL filled in after the PR is created)_
+**Completed:** 2026-05-14
+**Test count after this phase:** 26 / 34
+
+**What was built:**
+`modules/risk_engine.py` — pure post-processing module that reads the
+findings rows for an analysis via `db_manager.get_findings`, applies the
+scoring contract from `config.py` (`severity_weight × category_multiplier`),
+normalises to 0–100, classifies LOW / MEDIUM / HIGH, computes a phase
+breakdown, picks the top-5 issues by contribution, and aggregates the
+unique OWASP MTW10 (2024) categories + CWE ids triggered. Two entry
+points: `compute(analysis_id)` (DB-backed, used by the orchestrator) and
+`compute_from_findings(findings)` (in-memory, used by the view + tests).
+Orchestrator now runs Phase 5 after the detection phases (2 / 3 / 4) and
+persists `risk_score` + `risk_classification` on the `analyses` row.
+Result page renders a coloured risk badge in the title row and a Risk
+Details tab with: classification + score, score-breakdown bar chart by
+phase, top-5 issues list, OWASP MTW10 table with names, CWE pill list.
+
+**Verified working:**
+- `python -m pytest tests/ -v` → **26 passed** (3 db + 6 manifest + 8 source + 5 dynamic + 4 risk)
+- End-to-end orchestrator smoke test on a synthetic APK with 4 dangerous
+  perms + 2 source findings (Hardcoded Secret + MD5 weak crypto):
+  `risk_score=38`, `risk_classification=MEDIUM`. Badge renders with the
+  amber `risk-medium` class in both the title row and the Risk panel.
+- Empty-findings sanity case: score 0, classification LOW
+- All-HIGH critical-category case (12 hardcoded-secret findings):
+  raw=180, normalized=90, classification HIGH
+- Mixed-severity case: phase breakdown sums to raw score; OWASP/CWE
+  dedup includes both finding-attached ids and category-fallback ids
+  (e.g. a Phase 2 "Dangerous Permission" finding without an `owasp_id`
+  still surfaces M6 via `CATEGORY_TO_OWASP`)
+
+**On scoring math:**
+- A finding from a category not in `CATEGORY_MULTIPLIERS` (e.g.
+  manifest-level "Dangerous Permission", or any Phase 4 runtime
+  category) uses the default multiplier of 1.0 — it still counts toward
+  the score, just without amplification. Documented in the docstring
+  of `_score_contribution`.
+- Findings with severity that isn't HIGH / MEDIUM / LOW contribute 0.
+  Defensive — should never happen given Phase 2-4 always set one of the
+  three.
+
+**Pending / deferred:**
+- SBP bucket in `breakdown_by_phase` is initialised to 0 and updated
+  from `phase=7` findings. Phase 7 (SBP) hasn't shipped yet, so it stays
+  at 0 for now — wiring is in place.
+- A real DIVA/InsecureShop APK has not been run against the engine.
+  Synthetic-APK smoke test landed at MEDIUM (38/100); against a real
+  vulnerable APK with 30+ source findings, the score will easily exceed
+  the 70 HIGH threshold (the catalog has 5 HIGH × 1.5 multiplier
+  patterns in Hardcoded Secrets alone).
+
+**Known issues:**
+- The risk badge in the title row uses Jinja `{% set classification %}`
+  inside an `{% if %}` block. The block is fenced — `classification` does
+  not leak into sibling tabs. Verified by reading the rendered HTML.
+
+**Mid-execution decisions:**
+- D-10 (decisions log): `risk_score` is stored as the *normalized*
+  integer (0-100) on the analyses row, NOT the raw float. The raw score
+  + breakdown are recomputed on the view because they're cheap and we
+  don't want to schema-pollute every chapter-cited integer. The audit
+  log captures `score` + `classification` so the forensic trail is
+  complete.
+- D-11: `compute_from_findings(findings)` is exposed as a public entry
+  point alongside `compute(analysis_id)`. The view recomputes Risk data
+  from in-memory findings instead of round-tripping through the DB;
+  Phase 6 (PDF) and Phase 9 (tests) will use the same hook.
+- D-12: OWASP id aggregation prefers the value persisted on the finding
+  row but falls back to `CATEGORY_TO_OWASP[category]` when absent. This
+  is critical because Phase 4 dynamic findings don't carry an
+  `owasp_id` on the row (the dynamic analyzer leaves it None).
+
+**Files touched:** 2 added, 6 modified.
+
+**Next session picks up at:** Phase 6 — PDF Reports + Forensic Hashing.
 
 ### Phase 6 — PDF Reports + Forensic Hashing
 
@@ -576,6 +653,46 @@ events list deterministic; matches what MobSF's logcat post-processor
 does. The catalog order in ARCHITECTURE.md §11 was chosen specifically
 so the more specific category comes first.
 **Reversible?** Easy — drop the `break` in `_classify_logcat`.
+
+### D-10: `risk_score` stored as normalized integer, raw data recomputed
+**Made in:** Phase 5
+**Date:** 2026-05-14
+**Decision:** The `analyses.risk_score` column persists the *normalized*
+(0-100) integer plus the classification string. The raw score, phase
+breakdown, top issues, and OWASP/CWE aggregations are recomputed by the
+view from the findings rows on every result-page render.
+**Reasoning:** Persisting every derived field would either bloat the §4
+schema or require a new table. Recomputing is cheap (O(N) over findings,
+typically < 100 rows) and keeps the chapter-cited "risk_score 0-100" as
+the only persisted scalar. The audit_log captures `score` and
+`classification` so the forensic story is complete.
+**Reversible?** Easy — add columns to `analyses` and write them in
+`save_risk` if Phase 9 wants to denormalise.
+
+### D-11: Two public entry points — `compute` + `compute_from_findings`
+**Made in:** Phase 5
+**Date:** 2026-05-14
+**Decision:** `risk_engine` exposes both `compute(analysis_id)` (DB-backed)
+and `compute_from_findings(findings)` (pure function over a list).
+**Reasoning:** The orchestrator wants DB-backed; the view wants in-memory
+recomputation from already-loaded findings; tests want pure functions
+without DB plumbing. Three callers, three needs, one shared core.
+**Reversible?** Trivially — collapse into one function with an optional arg.
+
+### D-12: OWASP aggregation falls back to category mapping
+**Made in:** Phase 5
+**Date:** 2026-05-14
+**Decision:** When a finding row has no `owasp_id` set (typical for Phase
+4 dynamic findings), the aggregator falls back to
+`CATEGORY_TO_OWASP[category]`. Same for `cwe_id` via `CATEGORY_TO_CWE`.
+**Reasoning:** Phase 4 dynamic findings deliberately leave `owasp_id` /
+`cwe_id` as None on the row because runtime events don't map 1:1 to
+static OWASP categories. The category-level fallback gives the
+result-page OWASP table a fair shot at being populated. Without it, a
+dynamic-only analysis would report "no OWASP categories triggered" even
+when the runtime caught cleartext HTTP.
+**Reversible?** Easy — remove the fallback to enforce strict
+per-finding tagging.
 
 ### D-9: One finding per *unique category*, not per event
 **Made in:** Phase 4

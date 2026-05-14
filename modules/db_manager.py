@@ -406,6 +406,17 @@ def get_runtime_events(analysis_id: str) -> list[dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
+# ---------- risk (Phase 5) ----------
+
+def save_risk(analysis_id: str, risk: dict[str, Any]) -> None:
+    """Persist the normalized score + classification on the analyses row."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE analyses SET risk_score = ?, risk_classification = ? WHERE id = ?",
+            (risk.get("normalized_score"), risk.get("classification"), analysis_id),
+        )
+
+
 # ---------- audit log ----------
 
 def add_audit_entry(analysis_id: str, action: str, actor: str = "system", details: str | None = None) -> None:

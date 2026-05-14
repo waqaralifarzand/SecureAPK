@@ -5,7 +5,14 @@
 {% endblock %}
 {% block content %}
 <section class="result-header">
-  <h1>{{ analysis.app_name or analysis.apk_filename }}</h1>
+  <div class="result-title-row">
+    <h1>{{ analysis.app_name or analysis.apk_filename }}</h1>
+    {% if analysis.status == 'completed' and analysis.risk_classification %}
+      {% set classification = analysis.risk_classification %}
+      {% set score = analysis.risk_score %}
+      {% include '_partials/risk_badge.html' %}
+    {% endif %}
+  </div>
   <dl class="meta-grid">
     <dt>Analysis ID</dt><dd class="mono">{{ analysis.id }}</dd>
     <dt>Package</dt><dd class="mono">{{ analysis.package_name or '&mdash;' }}</dd>
@@ -188,10 +195,76 @@
 </section>
 
 <section class="tab-panel" data-tab-panel="risk">
+  {% if risk %}
   <div class="panel">
-    <h2>Risk Assessment</h2>
-    <p class="muted">Not yet implemented (Phase 5).</p>
+    <h2>Risk Summary</h2>
+    <dl class="meta-grid">
+      <dt>Classification</dt><dd>
+        {% set classification = risk.classification %}
+        {% set score = risk.normalized_score %}
+        {% include '_partials/risk_badge.html' %}
+      </dd>
+      <dt>Normalized score</dt><dd>{{ risk.normalized_score }} / 100</dd>
+      <dt>Raw score</dt><dd>{{ risk.raw_score }}</dd>
+      <dt>Total findings</dt><dd>{{ risk.total_findings }}</dd>
+    </dl>
   </div>
+
+  <div class="panel">
+    <h3>Score Breakdown by Phase</h3>
+    {% set total = (risk.breakdown_by_phase.manifest + risk.breakdown_by_phase.source + risk.breakdown_by_phase.dynamic + risk.breakdown_by_phase.sbp) %}
+    <table class="data-table">
+      <thead><tr><th>Phase</th><th>Raw contribution</th><th></th></tr></thead>
+      <tbody>
+        {% for label, key in [('Manifest','manifest'),('Source','source'),('Dynamic','dynamic'),('SBP','sbp')] %}
+          {% set val = risk.breakdown_by_phase[key] %}
+          {% set pct = (val * 100 / total) if total > 0 else 0 %}
+          <tr>
+            <td>{{ label }}</td>
+            <td>{{ val }}</td>
+            <td><div class="bar"><div class="bar-fill" style="width: {{ pct|round(0) }}%"></div></div></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if risk.top_issues %}
+  <div class="panel">
+    <h3>Top {{ risk.top_issues|length }} Issues</h3>
+    {% for finding in risk.top_issues %}
+      {% include '_partials/finding_card.html' %}
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="panel">
+    <h3>OWASP Mobile Top 10 (2024) Categories Triggered</h3>
+    {% if risk.owasp_categories_triggered %}
+    <table class="data-table">
+      <thead><tr><th>ID</th><th>Name</th></tr></thead>
+      <tbody>
+        {% for mid in risk.owasp_categories_triggered %}
+        <tr><td class="mono">{{ mid }}</td><td>{{ risk.owasp_names.get(mid, '&mdash;') }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No OWASP categories triggered.</p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h3>CWE References</h3>
+    {% if risk.cwes_triggered %}
+    <p>{% for cwe in risk.cwes_triggered %}<span class="mono pill pill-completed">{{ cwe }}</span> {% endfor %}</p>
+    {% else %}
+    <p class="muted">No CWE references attached.</p>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="panel"><p class="muted">Risk assessment not available — analysis is not yet complete.</p></div>
+  {% endif %}
 </section>
 
 <section class="tab-panel" data-tab-panel="permissions">

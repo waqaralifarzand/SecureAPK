@@ -13,7 +13,7 @@ from flask import (
 from werkzeug.utils import secure_filename
 
 import config
-from modules import analyzer, db_manager, forensic
+from modules import analyzer, db_manager, forensic, risk_engine
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -102,6 +102,10 @@ def view_analysis(analysis_id: str):
         (e["details"] for e in audit_entries if e["action"] == "dynamic_status"),
         None,
     )
+    # Recompute the RiskAssessment for the view so the breakdown / top-issues
+    # tables have access to the structured data (the analyses row only stores
+    # score + classification).
+    risk = risk_engine.compute_from_findings(findings) if analysis["status"] == "completed" else None
     # Group source findings by category for the Source Code tab.
     source_by_category: dict[str, list] = {}
     for f in source_findings:
@@ -121,6 +125,7 @@ def view_analysis(analysis_id: str):
         permissions=permissions,
         exported_components=exported_components,
         parser_used=parser_used,
+        risk=risk,
     )
 
 

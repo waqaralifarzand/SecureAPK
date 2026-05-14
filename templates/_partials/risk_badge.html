@@ -1,3 +1,6 @@
-{# Placeholder risk badge — finalized in Phase 5. #}
-{% set classification = classification or 'LOW' %}
-<span class="risk-badge risk-{{ classification|lower }}">{{ classification }}</span>
+{# Risk badge. Inputs: `classification` ('LOW'|'MEDIUM'|'HIGH'), `score` (int). #}
+{% set _cls = (classification or 'LOW')|upper %}
+<span class="risk-badge risk-{{ _cls|lower }}" title="Risk classification">
+  <strong>{{ _cls }}</strong>
+  {% if score is not none %}<span class="risk-score">{{ score }}/100</span>{% endif %}
+</span>
