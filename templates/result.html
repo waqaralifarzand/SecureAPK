@@ -5,9 +5,25 @@
 {% endblock %}
 {% block content %}
 <section class="result-header">
-  <h1>Analysis</h1>
+  <div class="result-title-row">
+    <h1>{{ analysis.app_name or analysis.apk_filename }}</h1>
+    <div class="title-actions">
+      {% if analysis.status == 'completed' and analysis.risk_classification %}
+        {% set classification = analysis.risk_classification %}
+        {% set score = analysis.risk_score %}
+        {% include '_partials/risk_badge.html' %}
+      {% endif %}
+      {% if analysis.status == 'completed' and analysis.pdf_path %}
+        <a class="btn btn-primary btn-sm"
+           href="{{ url_for('download_report', analysis_id=analysis.id) }}">
+          &#8595; Download PDF Report
+        </a>
+      {% endif %}
+    </div>
+  </div>
   <dl class="meta-grid">
     <dt>Analysis ID</dt><dd class="mono">{{ analysis.id }}</dd>
+    <dt>Package</dt><dd class="mono">{{ analysis.package_name or '&mdash;' }}</dd>
     <dt>APK</dt><dd>{{ analysis.apk_filename }} ({{ analysis.apk_size_bytes }} bytes)</dd>
     <dt>SHA-256</dt><dd class="mono hash">{{ analysis.apk_hash_sha256 }}</dd>
     <dt>Status</dt><dd><span id="status-pill" class="pill pill-{{ analysis.status }}">{{ analysis.status }}</span></dd>
@@ -17,10 +33,8 @@
 
 {% if analysis.status == 'running' %}
 <section class="panel">
-  <h2>Analysis pending &mdash; analyzers not yet implemented</h2>
-  <p class="muted">The placeholder orchestrator is running. This page polls
-  <code>/api/analysis/{{ analysis.id }}/status</code> every 2 seconds and refreshes
-  when the analysis completes.</p>
+  <h2>Analysis in progress</h2>
+  <p class="muted">This page polls <code>/api/analysis/{{ analysis.id }}/status</code> every 2 seconds and refreshes when the analysis completes.</p>
   <div class="progress"><div class="progress-bar" id="progress-bar" style="width: {{ analysis.progress_pct }}%"></div></div>
   <p class="muted">Current phase: <span id="current-phase">{{ analysis.current_phase or '-' }}</span></p>
 </section>
@@ -30,21 +44,306 @@
   <p>{{ analysis.error_message or 'Unknown error.' }}</p>
 </section>
 {% else %}
-<section class="panel">
-  <h2>No findings</h2>
-  <p class="muted">Analyzers are not yet implemented (Phase 1 placeholder). Real
-  static and dynamic analysis arrive in Phases 2-4.</p>
+
+<nav class="tabs" role="tablist">
+  <button class="tab tab-active" data-tab="manifest">Manifest</button>
+  <button class="tab" data-tab="source">Source Code</button>
+  <button class="tab" data-tab="dynamic">Dynamic</button>
+  <button class="tab" data-tab="risk">Risk</button>
+  <button class="tab" data-tab="permissions">Permissions</button>
+  {% if analysis.sbp_enabled %}<button class="tab" data-tab="sbp">SBP Compliance</button>{% endif %}
+</nav>
+
+<section class="tab-panel tab-panel-active" data-tab-panel="manifest">
+  <div class="panel">
+    <h2>Application Metadata</h2>
+    <dl class="meta-grid">
+      <dt>Package name</dt><dd class="mono">{{ analysis.package_name or '&mdash;' }}</dd>
+      <dt>App name</dt><dd>{{ analysis.app_name or '&mdash;' }}</dd>
+      <dt>Version</dt><dd>{{ analysis.version_name or '&mdash;' }} ({{ analysis.version_code or '?' }})</dd>
+      <dt>Target SDK</dt><dd>{{ analysis.target_sdk or '&mdash;' }}</dd>
+      <dt>Min SDK</dt><dd>{{ analysis.min_sdk or '&mdash;' }}</dd>
+      <dt>Parser used</dt><dd class="mono">{{ parser_used or '&mdash;' }}</dd>
+    </dl>
+  </div>
+
+  <div class="panel">
+    <h2>Insecure Configuration Flags</h2>
+    {% set flags_findings = manifest_findings|selectattr('category', 'in', ['Debuggable Build','Cleartext Traffic','Backup Allowed','Missing Network Security Config'])|list %}
+    {% set debug_flag = (flags_findings|selectattr('category','equalto','Debuggable Build')|list|length) > 0 %}
+    {% set cleartext_flag = (flags_findings|selectattr('category','equalto','Cleartext Traffic')|list|length) > 0 %}
+    {% set backup_flag = (flags_findings|selectattr('category','equalto','Backup Allowed')|list|length) > 0 %}
+    {% set nsc_missing = (flags_findings|selectattr('category','equalto','Missing Network Security Config')|list|length) > 0 %}
+    <table class="data-table">
+      <thead><tr><th>Flag</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>android:debuggable</td><td><span class="pill pill-{{ 'danger' if debug_flag else 'ok' }}">{{ 'true' if debug_flag else 'false' }}</span></td></tr>
+        <tr><td>android:usesCleartextTraffic</td><td><span class="pill pill-{{ 'danger' if cleartext_flag else 'ok' }}">{{ 'true' if cleartext_flag else 'false' }}</span></td></tr>
+        <tr><td>android:allowBackup</td><td><span class="pill pill-{{ 'danger' if backup_flag else 'ok' }}">{{ 'true' if backup_flag else 'false' }}</span></td></tr>
+        <tr><td>networkSecurityConfig</td><td><span class="pill pill-{{ 'danger' if nsc_missing else 'ok' }}">{{ 'missing' if nsc_missing else 'declared' }}</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <h2>Exported Components ({{ exported_components|length }})</h2>
+    {% if exported_components %}
+    <table class="data-table">
+      <thead><tr><th>Type</th><th>Name</th><th>Protected</th><th>Permission</th><th>Risk</th></tr></thead>
+      <tbody>
+        {% for c in exported_components %}
+        <tr>
+          <td>{{ c.component_type }}</td>
+          <td class="mono">{{ c.component_name }}</td>
+          <td>{{ 'yes' if c.is_protected else 'no' }}</td>
+          <td class="mono">{{ c.permission_attr or '&mdash;' }}</td>
+          <td>{% if c.is_dangerous %}<span class="severity-badge severity-badge-medium">UNPROTECTED</span>{% else %}<span class="pill pill-ok">ok</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No exported components extracted (parser fallback may be in use).</p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h2>Manifest Findings ({{ manifest_findings|length }})</h2>
+    {% if manifest_findings %}
+      {% for finding in manifest_findings %}
+        {% include '_partials/finding_card.html' %}
+      {% endfor %}
+    {% else %}
+    <p class="muted">No findings from manifest analysis.</p>
+    {% endif %}
+  </div>
+</section>
+
+<section class="tab-panel" data-tab-panel="source">
+  <div class="panel">
+    <h2>Source Code Analysis</h2>
+    <dl class="meta-grid">
+      <dt>Decompiler</dt><dd class="mono">{{ decompiler_used or '&mdash;' }}</dd>
+      <dt>Findings</dt><dd>{{ source_findings|length }}</dd>
+      <dt>Categories</dt><dd>{{ source_by_category|length }} / 9</dd>
+    </dl>
+    {% if decompiler_used == 'dex_strings' %}
+    <p class="muted">Jadx was not available — falling back to DEX string extraction.
+    File and line numbers will be absent and coverage is reduced.</p>
+    {% endif %}
+  </div>
+
+  {% if source_by_category %}
+    {% for category, items in source_by_category.items() %}
+    <div class="panel">
+      <h3>{{ category }} <span class="muted">({{ items|length }})</span></h3>
+      {% for finding in items %}
+        {% include '_partials/finding_card.html' %}
+      {% endfor %}
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="panel"><p class="muted">No source code findings.</p></div>
+  {% endif %}
+</section>
+
+<section class="tab-panel" data-tab-panel="dynamic">
+  {% if not analysis.dynamic_enabled %}
+  <div class="panel">
+    <h2>Dynamic Analysis</h2>
+    <p class="muted">Dynamic analysis was not enabled for this scan.</p>
+  </div>
+  {% else %}
+  {% set banner_class = 'banner-ok' if dynamic_status == 'completed'
+                  else 'banner-warn' if dynamic_status == 'partial'
+                  else 'banner-skip' %}
+  <div class="panel">
+    <h2>Dynamic Analysis</h2>
+    <div class="status-banner {{ banner_class }}">
+      <strong>Status:</strong> <span class="mono">{{ dynamic_status or 'pending' }}</span>
+    </div>
+    <dl class="meta-grid">
+      <dt>Runtime events</dt><dd>{{ runtime_events|length }}</dd>
+      <dt>Findings</dt><dd>{{ dynamic_findings|length }}</dd>
+    </dl>
+    {% if dynamic_status and dynamic_status.startswith('skipped') %}
+    <p class="muted">No emulator was reachable (or install failed). Start an Android
+    emulator via <em>Android Studio &rarr; Device Manager</em> and re-upload the
+    APK with Dynamic Analysis enabled.</p>
+    {% endif %}
+  </div>
+
+  {% if runtime_events %}
+  <div class="panel">
+    <h3>Runtime Events ({{ runtime_events|length }})</h3>
+    <table class="data-table">
+      <thead><tr><th>t (s)</th><th>Severity</th><th>Category</th><th>Log line</th></tr></thead>
+      <tbody>
+        {% for ev in runtime_events %}
+        <tr>
+          <td>{{ ev.timestamp_in_session if ev.timestamp_in_session is not none else '&mdash;' }}</td>
+          <td><span class="severity-badge severity-badge-{{ ev.severity|lower }}">{{ ev.severity }}</span></td>
+          <td>{{ ev.event_category }}</td>
+          <td class="mono">{{ ev.log_line or '&mdash;' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if dynamic_findings %}
+  <div class="panel">
+    <h3>Dynamic Findings ({{ dynamic_findings|length }})</h3>
+    {% for finding in dynamic_findings %}
+      {% include '_partials/finding_card.html' %}
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% endif %}
+</section>
+
+<section class="tab-panel" data-tab-panel="risk">
+  {% if risk %}
+  <div class="panel">
+    <h2>Risk Summary</h2>
+    <dl class="meta-grid">
+      <dt>Classification</dt><dd>
+        {% set classification = risk.classification %}
+        {% set score = risk.normalized_score %}
+        {% include '_partials/risk_badge.html' %}
+      </dd>
+      <dt>Normalized score</dt><dd>{{ risk.normalized_score }} / 100</dd>
+      <dt>Raw score</dt><dd>{{ risk.raw_score }}</dd>
+      <dt>Total findings</dt><dd>{{ risk.total_findings }}</dd>
+    </dl>
+  </div>
+
+  <div class="panel">
+    <h3>Score Breakdown by Phase</h3>
+    {% set total = (risk.breakdown_by_phase.manifest + risk.breakdown_by_phase.source + risk.breakdown_by_phase.dynamic + risk.breakdown_by_phase.sbp) %}
+    <table class="data-table">
+      <thead><tr><th>Phase</th><th>Raw contribution</th><th></th></tr></thead>
+      <tbody>
+        {% for label, key in [('Manifest','manifest'),('Source','source'),('Dynamic','dynamic'),('SBP','sbp')] %}
+          {% set val = risk.breakdown_by_phase[key] %}
+          {% set pct = (val * 100 / total) if total > 0 else 0 %}
+          <tr>
+            <td>{{ label }}</td>
+            <td>{{ val }}</td>
+            <td><div class="bar"><div class="bar-fill" style="width: {{ pct|round(0) }}%"></div></div></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if risk.top_issues %}
+  <div class="panel">
+    <h3>Top {{ risk.top_issues|length }} Issues</h3>
+    {% for finding in risk.top_issues %}
+      {% include '_partials/finding_card.html' %}
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="panel">
+    <h3>OWASP Mobile Top 10 (2024) Categories Triggered</h3>
+    {% if risk.owasp_categories_triggered %}
+    <table class="data-table">
+      <thead><tr><th>ID</th><th>Name</th></tr></thead>
+      <tbody>
+        {% for mid in risk.owasp_categories_triggered %}
+        <tr><td class="mono">{{ mid }}</td><td>{{ risk.owasp_names.get(mid, '&mdash;') }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No OWASP categories triggered.</p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h3>CWE References</h3>
+    {% if risk.cwes_triggered %}
+    <p>{% for cwe in risk.cwes_triggered %}<span class="mono pill pill-completed">{{ cwe }}</span> {% endfor %}</p>
+    {% else %}
+    <p class="muted">No CWE references attached.</p>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="panel"><p class="muted">Risk assessment not available — analysis is not yet complete.</p></div>
+  {% endif %}
+</section>
+
+<section class="tab-panel" data-tab-panel="permissions">
+  <div class="panel">
+    <h2>Requested Permissions ({{ permissions|length }})</h2>
+    {% if permissions %}
+    <table class="data-table">
+      <thead><tr><th>Permission</th><th>Risk</th><th>Description</th></tr></thead>
+      <tbody>
+        {% for p in permissions %}
+        <tr>
+          <td class="mono">{{ p.permission_name }}</td>
+          <td>{% if p.is_dangerous %}<span class="severity-badge severity-badge-{{ p.severity|lower }}">{{ p.severity }}</span>{% else %}<span class="pill pill-ok">normal</span>{% endif %}</td>
+          <td>{{ p.description or '&mdash;' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No permissions requested (or parser fallback returned none).</p>
+    {% endif %}
+  </div>
+</section>
+
+{% if analysis.sbp_enabled %}
+<section class="tab-panel" data-tab-panel="sbp">
+  <div class="panel">
+    <h2>SBP Cybersecurity Framework Compliance</h2>
+    <p class="muted">State Bank of Pakistan cybersecurity framework rule pack
+    applied to mobile banking applications. SBP rules are evaluated against
+    the static analysis results from earlier phases.</p>
+    <div class="sbp-summary">
+      <div class="sbp-count sbp-ok">       <span>{{ sbp_counts.COMPLIANT }}</span> compliant</div>
+      <div class="sbp-count sbp-danger">   <span>{{ sbp_counts.NON_COMPLIANT }}</span> non-compliant</div>
+      <div class="sbp-count sbp-manual">   <span>{{ sbp_counts.MANUAL_REVIEW }}</span> manual review</div>
+      <div class="sbp-count sbp-na">       <span>{{ sbp_counts.NOT_APPLICABLE }}</span> not applicable</div>
+    </div>
+  </div>
+
+  {% if sbp_rules %}
+  <div class="panel">
+    <h3>Per-Rule Status</h3>
+    {% for rule in sbp_rules %}
+      {% include '_partials/sbp_card.html' %}
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="panel"><p class="muted">SBP rules have not been evaluated for this analysis.</p></div>
+  {% endif %}
 </section>
 {% endif %}
 
-<section class="panel">
-  <h3>Audit trail</h3>
-  <p class="muted">Chain-of-custody records are written for every state change in this analysis.</p>
-</section>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 {% if analysis.status == 'running' %}
 <script>window.SECUREAPK_ANALYSIS_ID = {{ analysis.id|tojson }};</script>
 <script src="{{ url_for('static', filename='js/status_poller.js') }}"></script>
+{% else %}
+<script>
+  document.querySelectorAll('.tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.tab;
+      document.querySelectorAll('.tab').forEach(b => b.classList.toggle('tab-active', b === btn));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('tab-panel-active', p.dataset.tabPanel === target));
+    });
+  });
+</script>
+{% if analysis.educational_enabled %}
+<script src="{{ url_for('static', filename='js/result.js') }}"></script>
+{% endif %}
 {% endif %}
 {% endblock %}

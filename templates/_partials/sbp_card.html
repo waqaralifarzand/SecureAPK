@@ -1,0 +1,17 @@
+{# SBP per-rule status card. Expects `rule` (dict from sbp_findings row). #}
+{% set _s = rule.compliance_status %}
+{% set _cls = ('ok' if _s == 'COMPLIANT'
+              else 'danger' if _s == 'NON_COMPLIANT'
+              else 'manual' if _s == 'MANUAL_REVIEW'
+              else 'na') %}
+<article class="sbp-card sbp-{{ _cls }}">
+  <header class="sbp-head">
+    <span class="mono sbp-id">{{ rule.sbp_rule_id }}</span>
+    <span class="sbp-pill sbp-pill-{{ _cls }}">{{ _s }}</span>
+    {% if rule.severity %}
+    <span class="severity-badge severity-badge-{{ rule.severity|lower }}">{{ rule.severity }}</span>
+    {% endif %}
+  </header>
+  <h4 class="sbp-title">{{ rule.rule_name }}</h4>
+  {% if rule.evidence %}<p class="sbp-evidence">{{ rule.evidence }}</p>{% endif %}
+</article>

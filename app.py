@@ -13,7 +13,7 @@ from flask import (
 from werkzeug.utils import secure_filename
 
 import config
-from modules import analyzer, db_manager, forensic
+from modules import analyzer, db_manager, educational, forensic, risk_engine
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -83,7 +83,64 @@ def view_analysis(analysis_id: str):
     if not analysis:
         abort(404)
     findings = db_manager.get_findings(analysis_id)
-    return render_template("result.html", analysis=analysis, findings=findings)
+    permissions = db_manager.get_permissions(analysis_id)
+    exported_components = db_manager.get_exported_components(analysis_id)
+    audit_entries = db_manager.get_audit_log(analysis_id)
+    parser_used = next(
+        (e["details"] for e in audit_entries if e["action"] == "manifest_parser"),
+        None,
+    )
+    manifest_findings = [f for f in findings if f["phase"] == 2]
+    source_findings = [f for f in findings if f["phase"] == 3]
+    dynamic_findings = [f for f in findings if f["phase"] == 4]
+    runtime_events = db_manager.get_runtime_events(analysis_id)
+    decompiler_used = next(
+        (e["details"] for e in audit_entries if e["action"] == "source_decompiler"),
+        None,
+    )
+    dynamic_status = next(
+        (e["details"] for e in audit_entries if e["action"] == "dynamic_status"),
+        None,
+    )
+    # Phase 7: SBP rule results (only populated when sbp_enabled=True).
+    sbp_rules = db_manager.get_sbp_findings(analysis_id) if analysis.get("sbp_enabled") else []
+    sbp_counts = {"COMPLIANT": 0, "NON_COMPLIANT": 0,
+                  "NOT_APPLICABLE": 0, "MANUAL_REVIEW": 0}
+    for r in sbp_rules:
+        sbp_counts[r["compliance_status"]] = sbp_counts.get(r["compliance_status"], 0) + 1
+
+    # Recompute the RiskAssessment for the view so the breakdown / top-issues
+    # tables have access to the structured data. Mirror the orchestrator-side
+    # `risk_engine.compute()` by appending SBP non-compliant findings into the
+    # in-memory list before scoring.
+    if analysis["status"] == "completed":
+        risk_findings = list(findings) + risk_engine._sbp_findings_as_findings(analysis_id)
+        risk = risk_engine.compute_from_findings(risk_findings)
+    else:
+        risk = None
+    # Group source findings by category for the Source Code tab.
+    source_by_category: dict[str, list] = {}
+    for f in source_findings:
+        source_by_category.setdefault(f["category"], []).append(f)
+
+    return render_template(
+        "result.html",
+        analysis=analysis,
+        findings=findings,
+        manifest_findings=manifest_findings,
+        source_findings=source_findings,
+        source_by_category=source_by_category,
+        decompiler_used=decompiler_used,
+        dynamic_findings=dynamic_findings,
+        runtime_events=runtime_events,
+        dynamic_status=dynamic_status,
+        permissions=permissions,
+        exported_components=exported_components,
+        parser_used=parser_used,
+        risk=risk,
+        sbp_rules=sbp_rules,
+        sbp_counts=sbp_counts,
+    )
 
 
 @app.route("/analysis/<analysis_id>/report.pdf")
@@ -91,7 +148,17 @@ def download_report(analysis_id: str):
     analysis = db_manager.get_analysis(analysis_id)
     if not analysis or not analysis.get("pdf_path"):
         abort(404)
-    return send_file(analysis["pdf_path"], mimetype="application/pdf", as_attachment=True)
+    pdf_path = analysis["pdf_path"]
+    if not Path(pdf_path).exists():
+        abort(404)
+    pkg = (analysis.get("package_name") or "report").replace("/", "_")
+    download_name = f"secureapk_{pkg}_{analysis_id[:8]}.pdf"
+    return send_file(
+        pdf_path,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=download_name,
+    )
 
 
 @app.route("/dashboard")
@@ -129,8 +196,14 @@ def api_status(analysis_id: str):
 
 @app.route("/api/finding/<finding_id>/educational")
 def api_finding_educational(finding_id: str):
-    # Placeholder — wired up in Phase 8.
-    return jsonify({"error": "educational mode not yet implemented"}), 404
+    remediation = educational.get_remediation_for_finding(finding_id)
+    if remediation is None:
+        return jsonify({"error": "No educational content for this finding"}), 404
+    return jsonify({
+        "vulnerable_snippet": remediation["vulnerable_snippet"],
+        "fixed_snippet":      remediation["fixed_snippet"],
+        "explanation":        remediation["explanation"],
+    })
 
 
 @app.route("/health")

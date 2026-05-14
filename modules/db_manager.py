@@ -286,6 +286,189 @@ def get_findings(analysis_id: str) -> list[dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
+def get_finding(finding_id: str) -> dict[str, Any] | None:
+    """Look up a single finding by its UUID id. Used by educational lookups."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM findings WHERE id = ?", (finding_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+# ---------- manifest metadata / permissions / exported components ----------
+
+def save_manifest_metadata(analysis_id: str, manifest: dict[str, Any]) -> None:
+    with _connect() as conn:
+        conn.execute(
+            """
+            UPDATE analyses
+               SET package_name = ?, app_name = ?, version_name = ?, version_code = ?,
+                   target_sdk = ?, min_sdk = ?
+             WHERE id = ?
+            """,
+            (
+                manifest.get("package_name"),
+                manifest.get("app_name"),
+                manifest.get("version_name"),
+                manifest.get("version_code"),
+                manifest.get("target_sdk"),
+                manifest.get("min_sdk"),
+                analysis_id,
+            ),
+        )
+
+
+def save_permissions(analysis_id: str, permissions: Iterable[dict[str, Any]]) -> None:
+    with _connect() as conn:
+        for p in permissions:
+            conn.execute(
+                """
+                INSERT INTO permissions
+                    (analysis_id, permission_name, is_dangerous, severity, description)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    analysis_id,
+                    p["name"],
+                    int(bool(p.get("is_dangerous"))),
+                    p.get("severity"),
+                    p.get("description"),
+                ),
+            )
+
+
+def get_permissions(analysis_id: str) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM permissions WHERE analysis_id = ? ORDER BY is_dangerous DESC, permission_name",
+            (analysis_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def save_exported_components(analysis_id: str, components: Iterable[dict[str, Any]]) -> None:
+    with _connect() as conn:
+        for c in components:
+            conn.execute(
+                """
+                INSERT INTO exported_components
+                    (analysis_id, component_type, component_name, is_protected,
+                     permission_attr, is_dangerous)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    analysis_id,
+                    c.get("type") or c.get("component_type"),
+                    c.get("name") or c.get("component_name"),
+                    int(bool(c.get("is_protected"))),
+                    c.get("permission_attr"),
+                    int(bool(c.get("is_dangerous"))),
+                ),
+            )
+
+
+def get_exported_components(analysis_id: str) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM exported_components WHERE analysis_id = ? ORDER BY component_type, component_name",
+            (analysis_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def set_parser_used(analysis_id: str, parser_used: str) -> None:
+    """Record which manifest parser activated. Stored alongside audit log
+    rather than in analyses (no dedicated column — matches §4 schema as-is)."""
+    add_audit_entry(analysis_id, "manifest_parser", details=parser_used)
+
+
+# ---------- runtime events (Phase 4) ----------
+
+def save_runtime_events(analysis_id: str, events: Iterable[dict[str, Any]]) -> None:
+    with _connect() as conn:
+        for e in events:
+            conn.execute(
+                """
+                INSERT INTO runtime_events
+                    (analysis_id, event_category, event_subtype, log_line,
+                     timestamp_in_session, severity)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    analysis_id,
+                    e.get("category") or e.get("event_category"),
+                    e.get("subtype") or e.get("event_subtype"),
+                    e.get("log_line"),
+                    e.get("timestamp_in_session"),
+                    e.get("severity"),
+                ),
+            )
+
+
+def get_runtime_events(analysis_id: str) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM runtime_events WHERE analysis_id = ? "
+            "ORDER BY timestamp_in_session, id",
+            (analysis_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ---------- risk (Phase 5) ----------
+
+def save_risk(analysis_id: str, risk: dict[str, Any]) -> None:
+    """Persist the normalized score + classification on the analyses row."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE analyses SET risk_score = ?, risk_classification = ? WHERE id = ?",
+            (risk.get("normalized_score"), risk.get("classification"), analysis_id),
+        )
+
+
+def set_pdf_path(analysis_id: str, pdf_path: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE analyses SET pdf_path = ? WHERE id = ?", (pdf_path, analysis_id),
+        )
+
+
+# ---------- SBP compliance (Phase 7) ----------
+
+def save_sbp_findings(analysis_id: str, rule_results: Iterable[dict[str, Any]]) -> None:
+    """Persist one row per SBP rule (any status). The risk engine pulls
+    NON_COMPLIANT rows back out via get_sbp_findings(status='NON_COMPLIANT')."""
+    with _connect() as conn:
+        for r in rule_results:
+            conn.execute(
+                """
+                INSERT INTO sbp_findings
+                    (analysis_id, sbp_rule_id, rule_name, compliance_status,
+                     severity, evidence)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    analysis_id,
+                    r["rule_id"],
+                    r["name"],
+                    r["compliance_status"],
+                    r.get("severity"),
+                    r.get("evidence"),
+                ),
+            )
+
+
+def get_sbp_findings(analysis_id: str, status_filter: str | None = None) -> list[dict[str, Any]]:
+    sql = "SELECT * FROM sbp_findings WHERE analysis_id = ?"
+    params: tuple[Any, ...] = (analysis_id,)
+    if status_filter:
+        sql += " AND compliance_status = ?"
+        params += (status_filter,)
+    sql += " ORDER BY sbp_rule_id"
+    with _connect() as conn:
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+
 # ---------- audit log ----------
 
 def add_audit_entry(analysis_id: str, action: str, actor: str = "system", details: str | None = None) -> None:

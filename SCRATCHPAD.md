@@ -12,17 +12,18 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 
 | Phase | Status | Started | Completed | PR |
 |---|---|---|---|---|
-| 1 — Foundation | 🔄 PR open | 2026-05-14 | 2026-05-14 | _(see entry below)_ |
-| 2 — Manifest Analyzer | ⬜ Not started | — | — | — |
-| 3 — Source Code Analyzer | ⬜ Not started | — | — | — |
-| 4 — Dynamic Analyzer | ⬜ Not started | — | — | — |
-| 5 — Risk Engine + OWASP/CWE | ⬜ Not started | — | — | — |
-| 6 — PDF Reports + Forensic | ⬜ Not started | — | — | — |
-| 7 — SBP Banking Compliance | ⬜ Not started | — | — | — |
-| 8 — Educational Mode | ⬜ Not started | — | — | — |
-| 9 — Testing & Polish | ⬜ Not started | — | — | — |
+| 1 — Foundation | ✅ Merged | 2026-05-14 | 2026-05-14 | [#1](https://github.com/waqaralifarzand/SecureAPK/pull/1) |
+| 2 — Manifest Analyzer | ✅ Merged | 2026-05-14 | 2026-05-14 | [#2](https://github.com/waqaralifarzand/SecureAPK/pull/2) |
+| 3 — Source Code Analyzer | ✅ Merged | 2026-05-14 | 2026-05-14 | [#3](https://github.com/waqaralifarzand/SecureAPK/pull/3) |
+| 4 — Dynamic Analyzer | ✅ Merged | 2026-05-14 | 2026-05-14 | [#4](https://github.com/waqaralifarzand/SecureAPK/pull/4) |
+| 5 — Risk Engine + OWASP/CWE | ✅ Merged | 2026-05-14 | 2026-05-14 | [#5](https://github.com/waqaralifarzand/SecureAPK/pull/5) |
+| 6 — PDF Reports + Forensic | ✅ Merged | 2026-05-14 | 2026-05-14 | [#6](https://github.com/waqaralifarzand/SecureAPK/pull/6) |
+| 7 — SBP Banking Compliance | ✅ Merged | 2026-05-14 | 2026-05-14 | [#7](https://github.com/waqaralifarzand/SecureAPK/pull/7) |
+| 8 — Educational Mode | ✅ Merged | 2026-05-14 | 2026-05-14 | [#8](https://github.com/waqaralifarzand/SecureAPK/pull/8) |
+| 9 — Testing & Polish | 🔄 PR open | 2026-05-14 | 2026-05-14 | _(see entry below)_ |
 
-**Running test count:** 3 / 34 target
+**Running test count:** 42 / 34 target (✅ exceeded by 8)
+**Coverage (modules/):** 88%
 
 ---
 
@@ -30,7 +31,7 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 
 - **Repo:** https://github.com/waqaralifarzand/SecureAPK
 - **Default branch:** `main`
-- **Active branch:** `phase-1-foundation`
+- **Active branch:** `phase-9-testing-polish` (Phase 9 — final)
 - **Local dev URL:** http://127.0.0.1:5000 _(when `python app.py` is running)_
 
 ---
@@ -188,35 +189,775 @@ suffixes), 14 legacy files deleted per task description.
 
 ### Phase 2 — Manifest Analyzer
 
-_Not yet started._
+**Branch:** `claude/manifest-analyzer-tGGTJ`
+**PR:** [#2](https://github.com/waqaralifarzand/SecureAPK/pull/2) (draft)
+**Completed:** 2026-05-14
+**Test count after this phase:** 9 / 34
+
+**What was built:**
+Static manifest analyzer (`modules/manifest_analyzer.py`) with the full
+three-step fallback chain from ARCHITECTURE.md §10 — PyAXMLParser →
+`aapt dump badging` → raw ZIP/DEX string extraction. Pattern data added in
+`modules/patterns/permissions.py` (37 dangerous permissions, count asserted
+at import time) and `modules/patterns/owasp_cwe_map.py` (M1-M10 catalog +
+manifest-level category mappings). Orchestrator wires Phase 2 in, persists
+metadata, permissions, exported components, findings, and records the
+chosen parser in `audit_log`. Result page now has the four manifest sections
+(metadata, insecure flags, exported components table, findings list) plus
+permissions tab and tab-switcher JS. Finding card partial implemented
+without educational expansion (deferred to Phase 8 per spec).
+
+**Verified working:**
+- `python -m pytest tests/ -v` → **9 passed** (3 Phase 1 + 5 new Phase 2 + 1
+  catalog-count sanity check)
+- 37 dangerous permissions in `DANGEROUS_PERMISSIONS` — `assert
+  len(...) == 37` runs at import time so any future drift fails loudly
+- Synthetic-APK upload smoke test (Flask test client):
+  - `parser_used = "dex_strings"` (no real binary AXML → primary failed →
+    aapt absent → strings fallback fired cleanly — exactly what the chain
+    is supposed to do)
+  - `package_name = "com.smoke.test"` extracted from DEX strings
+  - 2 dangerous permissions persisted (CAMERA, READ_SMS), both HIGH
+  - 4 findings persisted (2 perm findings + Backup Allowed MEDIUM +
+    Missing NSC LOW)
+  - Audit log records: `analysis_started`, `hash_verified`,
+    `manifest_parser=dex_strings`, `phase_2_completed`,
+    `analysis_completed`
+  - Result page renders: tab nav with manifest active by default,
+    metadata grid populated, insecure-flags table, exported-components
+    section (empty for fallback path - truthful), permissions tab with
+    HIGH/MEDIUM/LOW severity badges, 4 finding cards
+- `python app.py` boots; `/health` returns valid JSON; `/upload` flow
+  end-to-end works
+- `parser_used` on smoke-test synthetic APK: `dex_strings` (expected — the
+  synthetic APK has no real binary AXML). On a real APK the primary parser
+  would activate; drop one into `tests/fixtures/sample_apks/` to exercise.
+
+**Pending / deferred:**
+- A real APK fixture (DIVA / InsecureShop) has not been dropped into
+  `tests/fixtures/sample_apks/`. Test 1 (`test_pyaxmlparser_parses_valid_apk`)
+  uses a `_FakeAPK` monkeypatched for `pyaxmlparser.APK` — when a real APK is
+  present the test prefers it automatically.
+- The `aapt` fallback parses `aapt dump badging` rather than `xmltree`.
+  Badging is easier to regex (key=value pairs) and produces the metadata
+  we need; the trade-off is that it does not enumerate components, so the
+  exported-components table is empty under that fallback. PyAXMLParser is
+  the primary path for real APKs and yields full component data.
+
+**Known issues:**
+- None observed within Phase 2 scope.
+
+**Mid-execution decisions:**
+- D-1 (see decisions log below): aapt fallback uses `dump badging` not
+  `dump xmltree AndroidManifest.xml`. Documented in decisions log.
+- D-2: Component `exported` calculation approximates the legacy Android
+  default — when `android:exported` is absent we infer `True` iff the
+  component has an `intent-filter`. Android 12+ requires the attribute be
+  explicit when intent-filters exist; the approximation matches MobSF's
+  behaviour and the literature-review's stated rule.
+- D-3: `parser_used` is stored as an `audit_log` row
+  (`action='manifest_parser', details=<value>`) rather than a new
+  `analyses` column. This preserves the §4 schema unchanged and keeps
+  the orchestrator's audit-trail-first contract.
+- D-4: Used Python's stdlib `xml.etree.ElementTree` in tests to synthesise
+  manifest XML trees that match the lxml-Element surface PyAXMLParser
+  returns. Avoids depending on a real binary AXML fixture for unit tests
+  while still exercising the analyzer's element-walking code.
+
+**Files touched:** 6 added, 5 modified.
+
+**Next session picks up at:** Phase 3 — Source Code Analyzer.
 
 ### Phase 3 — Source Code Analyzer
 
-_Not yet started._
+**Branch:** `phase-3-source-analyzer`
+**PR:** [#3](https://github.com/waqaralifarzand/SecureAPK/pull/3) (draft)
+**Completed:** 2026-05-14
+**Test count after this phase:** 17 / 34
+
+**What was built:**
+Static source-code analyzer (`modules/source_analyzer.py`) implementing
+ARCHITECTURE.md §10's two-step fallback chain — `jadx --no-res --output-dir`
++ per-line regex scan, with a printable-strings sweep of `classes*.dex` as
+the safety net when Jadx is absent. Catalog of **34 patterns across exactly
+9 categories** lives in `modules/patterns/vuln_patterns.py`; every entry
+carries the complete Phase 8 `remediation` dict (vulnerable / fixed /
+explanation). Per-(pattern_id, file) deduplication prevents the result page
+from flooding when one rule hits on every class. `owasp_cwe_map.py`
+extended with the 9 source-code categories. Orchestrator wires Phase 3 in
+between Phase 2 and the (still-placeholder) Phase 4. Result page Source
+Code tab groups findings by category with file/line info when Jadx ran and
+collapses gracefully under the `dex_strings` fallback.
+
+**Verified working:**
+- `python -m pytest tests/ -v` → **17 passed** (3 db + 6 manifest + 8 source)
+- 34 patterns / 9 categories — `assert len(VULN_PATTERNS) >= 30` and
+  `assert {p.category for p} == set(CATEGORIES)` both run at import time
+- Synthetic-APK orchestrator smoke test:
+  - Phase 2 findings: 3, Phase 3 findings: 2 (Hardcoded Secrets +
+    Weak Cryptography), `decompiler_used = "dex_strings"` (no Jadx locally)
+  - Audit log records `source_decompiler=dex_strings` and
+    `phase_3_completed` with the categories list
+  - Result page Source Code tab renders 5 finding cards correctly grouped
+    by category (verified via Flask test client)
+- Jadx-on-PATH path tested end-to-end via stubbed `subprocess.run`: file
+  paths and line numbers come through correctly, dedup is enforced
+- DEX-strings fallback test detects HARDCODED_GOOGLE_API_KEY and
+  WEAK_HASH_MD5 from a synthesised classes.dex with no Jadx available
+
+**Pattern catalog summary:**
+- 5 × Hardcoded Secrets, 4 × Insecure Communication, 5 × Weak Cryptography,
+  4 × Insecure Data Storage, 3 × Information Leakage, 3 × WebView Security,
+  4 × Code Execution, 3 × IPC Security, 3 × SSL/TLS Validation Bypass
+  → 34 total
+
+**Smoke test parser status:**
+- Local environment has no `jadx` binary, so the smoke test exercised the
+  `dex_strings` fallback. On a host with Jadx installed, the primary path
+  activates and findings carry full file/line context.
+
+**Pending / deferred:**
+- A real DIVA / InsecureShop APK has not been dropped into
+  `tests/fixtures/sample_apks/`. The Jadx-path test uses a `_stub_jadx`
+  monkeypatch that builds the .java tree in a temp dir — exercises every
+  branch of the analyzer without depending on the external binary.
+- Risk scoring (Phase 5) still treats Phase 3 findings as bare rows; the
+  risk engine will aggregate them when it lands.
+
+**Known issues:**
+- The `HARDCODED_GENERIC_PASSWORD` regex requires the literal token
+  `password|passwd|pwd` on the LHS of the assignment. Variants like
+  `mPassword`, `userPassword` will still match because of the prefix; if
+  it produces too much noise on real APKs in Phase 9 we can tighten with
+  `\b`.
+- DEX-strings fallback intentionally strips the surrounding quote
+  characters during printable extraction. Patterns that match quoted
+  literals (e.g. `HTTP_URL_LITERAL`) detect under Jadx but not under the
+  fallback. This is expected — fallback coverage is documented as reduced.
+
+**Mid-execution decisions:**
+- D-4 (decisions log): Per-(pattern_id, file) dedup uses `break` after the
+  first hit per file rather than collecting all hits and dropping later
+  duplicates. Saves a regex sweep on long files.
+- D-5: Jadx's non-zero exit code is *ignored* if any `.java` files were
+  produced on disk. Jadx routinely exits non-zero on partial
+  decompilation but still produces usable output; treating the disk
+  artefacts as ground truth keeps the analyzer working on the messy
+  real-world APKs the literature review highlights.
+- D-6: Code snippets under the Jadx path include ±1 surrounding lines
+  (stripped of leading/trailing whitespace) to give viva audiences context
+  when reviewing a finding without ballooning the DB column. The
+  `dex_strings` fallback never has snippets — file/line are absent there.
+
+**Files touched:** 3 added, 4 modified.
+
+**Next session picks up at:** Phase 4 — Dynamic Analyzer (rebuilt from scratch).
 
 ### Phase 4 — Dynamic Analyzer
 
-_Not yet started._
+**Branch:** `phase-4-dynamic-analyzer`
+**PR:** [#4](https://github.com/waqaralifarzand/SecureAPK/pull/4) (draft)
+**Completed:** 2026-05-14
+**Test count after this phase:** 22 / 34
+
+**What was built (rebuild from scratch — old `dynamic_analysis.py` was deleted in Phase 1):**
+A clean ADB-driven dynamic analyzer (`modules/dynamic_analyzer.py`) that
+follows ARCHITECTURE.md §10's full pipeline — `adb devices` → `adb install
+-r -t` → `adb shell monkey LAUNCHER 1` → 3-second settle → time-bounded
+`adb logcat -v time` capture → optional `dumpsys package` snapshot →
+**`adb uninstall` ALWAYS in `finally`**. Every subprocess call has a
+timeout; logcat uses `Popen` with a Unix process-group so the child tree
+dies together; the whole pipeline runs under a module-level
+`threading.Lock` so concurrent uploads can't both grab the emulator
+(ARCHITECTURE.md §8). Catalog of **exactly 10 runtime event categories** in
+`modules/patterns/runtime_events.py`, count + uniqueness asserted at
+import time. Logcat parser deduplicates identical (category, line[:120])
+hits with a `count` field — the literature review's "50 identical HTTP
+requests collapse to one event" requirement. Orchestrator gates Phase 4
+behind `options.dynamic_enabled`; result page Dynamic tab gets a colour-
+coded status banner (green/amber/red) that maps `completed` / `partial` /
+`skipped_*` to the CLAUDE.md §5 severity tokens.
+
+**Verified working:**
+- `python -m pytest tests/ -v` → **22 passed** (3 db + 6 manifest + 8 source + 5 dynamic)
+- 10 runtime categories — `assert len(RUNTIME_EVENT_CATEGORIES) == 10` at
+  import time; ID uniqueness + severity validity also asserted
+- End-to-end no-emulator smoke test through the orchestrator (the most
+  common path on a developer laptop):
+  - `dynamic_status="skipped_no_emulator"` recorded in `audit_log`
+  - `phase_4_completed` logged with `events=0, findings=0, logcat_seconds=0`
+  - **Zero exceptions, zero crashes** — orchestrator continued cleanly to
+    Phases 5/6 placeholders
+  - Result page Dynamic tab rendered the red `banner-skip` banner with the
+    "open Android Studio → Device Manager" actionable hint
+- Mocked-end-to-end ADB test: install + monkey + logcat (canned output)
+  + uninstall all called in order; `adb uninstall <pkg>` confirmed to fire
+  in `finally` even after partial failure paths (test 3)
+- Logcat classifier correctness: `CleartextTraffic` → `CLEARTEXT_HTTP`
+  HIGH; `password=hunter2` → `CREDENTIAL_LOG_EXPOSURE` HIGH;
+  `SSLHandshakeException` → `SSL_VALIDATION_EXCEPTION` HIGH
+
+**ADB subprocess approach (this is what broke the original code):**
+- `subprocess.run(..., timeout=N, capture_output=True, text=True)` for every
+  one-shot ADB call (devices, install, monkey, dumpsys, uninstall)
+- `subprocess.Popen(..., preexec_fn=os.setsid)` for logcat, terminated via
+  `os.killpg(os.getpgid(pid), SIGTERM)` after `DYNAMIC_LOGCAT_DURATION_SECONDS`
+- Windows fallback: `proc.terminate()` instead of `killpg`
+- All exceptions caught at the outermost layer; `analyze()` is contract-
+  bound to never raise into the orchestrator
+
+**Pending / deferred:**
+- Real-emulator validation. We do not have an Android emulator in this
+  environment. Nayab should run `python app.py`, start an AVD via Android
+  Studio, then upload an APK with Dynamic enabled to confirm the
+  `completed` path in addition to the no-emulator path the smoke test
+  already covers.
+- The `_capture_logcat` helper currently sleeps `duration` seconds in the
+  parent and drains stdout via `communicate()` afterwards. For the 30s
+  default this is fine; if Phase 9 wants live progress streaming we can
+  read stdout in a background thread. Not worth doing pre-Phase-5.
+
+**Known issues:**
+- Logcat capture wall time is best-effort. The `logcat_duration_seconds`
+  value reported on the result is `int(monotonic delta)` which can be off
+  by up to ~1s for a configured 30s window. Acceptable.
+- `dumpsys package` failures are intentionally swallowed — it's a
+  best-effort permission snapshot, not a blocker.
+
+**Mid-execution decisions:**
+- D-7: ADB pipeline returns a *dict* `DynamicAnalysisResult`, not a
+  dataclass. Keeps the contract identical to Phases 2 / 3 (manifest /
+  source) and lets `db_manager.save_runtime_events` consume the same
+  shape that the in-memory pipeline produced.
+- D-8: Logcat events that match multiple regex categories are tagged with
+  the *first* matching category (in the catalog order from
+  ARCHITECTURE.md §11). Prevents double-counting when, e.g., a SSL crash
+  line could match both SSL_VALIDATION_EXCEPTION and SECURITY_EXCEPTION_CRASH.
+- D-9: Phase 4 stores both `runtime_events` rows AND a `findings` row per
+  *unique* category (not per event). Ten distinct categories → at most
+  ten Phase 4 finding rows, regardless of how many logcat lines hit each.
+  Keeps the result page navigable; the full event table is preserved in
+  `runtime_events` for forensic detail.
+
+**Files touched:** 3 added, 5 modified.
+
+**Next session picks up at:** Phase 5 — Risk Engine + OWASP/CWE Mapping.
 
 ### Phase 5 — Risk Engine + OWASP/CWE Mapping
 
-_Not yet started._
+**Branch:** `phase-5-risk-engine`
+**PR:** [#5](https://github.com/waqaralifarzand/SecureAPK/pull/5) (draft)
+**Completed:** 2026-05-14
+**Test count after this phase:** 26 / 34
+
+**What was built:**
+`modules/risk_engine.py` — pure post-processing module that reads the
+findings rows for an analysis via `db_manager.get_findings`, applies the
+scoring contract from `config.py` (`severity_weight × category_multiplier`),
+normalises to 0–100, classifies LOW / MEDIUM / HIGH, computes a phase
+breakdown, picks the top-5 issues by contribution, and aggregates the
+unique OWASP MTW10 (2024) categories + CWE ids triggered. Two entry
+points: `compute(analysis_id)` (DB-backed, used by the orchestrator) and
+`compute_from_findings(findings)` (in-memory, used by the view + tests).
+Orchestrator now runs Phase 5 after the detection phases (2 / 3 / 4) and
+persists `risk_score` + `risk_classification` on the `analyses` row.
+Result page renders a coloured risk badge in the title row and a Risk
+Details tab with: classification + score, score-breakdown bar chart by
+phase, top-5 issues list, OWASP MTW10 table with names, CWE pill list.
+
+**Verified working:**
+- `python -m pytest tests/ -v` → **26 passed** (3 db + 6 manifest + 8 source + 5 dynamic + 4 risk)
+- End-to-end orchestrator smoke test on a synthetic APK with 4 dangerous
+  perms + 2 source findings (Hardcoded Secret + MD5 weak crypto):
+  `risk_score=38`, `risk_classification=MEDIUM`. Badge renders with the
+  amber `risk-medium` class in both the title row and the Risk panel.
+- Empty-findings sanity case: score 0, classification LOW
+- All-HIGH critical-category case (12 hardcoded-secret findings):
+  raw=180, normalized=90, classification HIGH
+- Mixed-severity case: phase breakdown sums to raw score; OWASP/CWE
+  dedup includes both finding-attached ids and category-fallback ids
+  (e.g. a Phase 2 "Dangerous Permission" finding without an `owasp_id`
+  still surfaces M6 via `CATEGORY_TO_OWASP`)
+
+**On scoring math:**
+- A finding from a category not in `CATEGORY_MULTIPLIERS` (e.g.
+  manifest-level "Dangerous Permission", or any Phase 4 runtime
+  category) uses the default multiplier of 1.0 — it still counts toward
+  the score, just without amplification. Documented in the docstring
+  of `_score_contribution`.
+- Findings with severity that isn't HIGH / MEDIUM / LOW contribute 0.
+  Defensive — should never happen given Phase 2-4 always set one of the
+  three.
+
+**Pending / deferred:**
+- SBP bucket in `breakdown_by_phase` is initialised to 0 and updated
+  from `phase=7` findings. Phase 7 (SBP) hasn't shipped yet, so it stays
+  at 0 for now — wiring is in place.
+- A real DIVA/InsecureShop APK has not been run against the engine.
+  Synthetic-APK smoke test landed at MEDIUM (38/100); against a real
+  vulnerable APK with 30+ source findings, the score will easily exceed
+  the 70 HIGH threshold (the catalog has 5 HIGH × 1.5 multiplier
+  patterns in Hardcoded Secrets alone).
+
+**Known issues:**
+- The risk badge in the title row uses Jinja `{% set classification %}`
+  inside an `{% if %}` block. The block is fenced — `classification` does
+  not leak into sibling tabs. Verified by reading the rendered HTML.
+
+**Mid-execution decisions:**
+- D-10 (decisions log): `risk_score` is stored as the *normalized*
+  integer (0-100) on the analyses row, NOT the raw float. The raw score
+  + breakdown are recomputed on the view because they're cheap and we
+  don't want to schema-pollute every chapter-cited integer. The audit
+  log captures `score` + `classification` so the forensic trail is
+  complete.
+- D-11: `compute_from_findings(findings)` is exposed as a public entry
+  point alongside `compute(analysis_id)`. The view recomputes Risk data
+  from in-memory findings instead of round-tripping through the DB;
+  Phase 6 (PDF) and Phase 9 (tests) will use the same hook.
+- D-12: OWASP id aggregation prefers the value persisted on the finding
+  row but falls back to `CATEGORY_TO_OWASP[category]` when absent. This
+  is critical because Phase 4 dynamic findings don't carry an
+  `owasp_id` on the row (the dynamic analyzer leaves it None).
+
+**Files touched:** 2 added, 6 modified.
+
+**Next session picks up at:** Phase 6 — PDF Reports + Forensic Hashing.
 
 ### Phase 6 — PDF Reports + Forensic Hashing
 
-_Not yet started._
+**Branch:** `phase-6-reports-forensic`
+**PR:** [#6](https://github.com/waqaralifarzand/SecureAPK/pull/6) (draft)
+**Completed:** 2026-05-14
+**Test count after this phase:** 33 / 34
+
+**What was built — the first MobSF differentiator ships:**
+ReportLab Platypus-based PDF generator (`modules/report_generator.py`)
+that produces a forensic-grade security report per ARCHITECTURE.md §11.1.
+Cover page embeds the APK SHA-256 (in monospace, accent colour) along
+with started/completed timestamps and tool version. Subsequent sections:
+risk summary with colour-coded classification banner + score-breakdown
+table + top-5 issues; manifest section with metadata / dangerous perms /
+exported components / findings; source-code section grouped by category;
+optional dynamic section (only when `dynamic_enabled`); OWASP MTW10 +
+CWE summary; **audit-log appendix** — the chain-of-custody section.
+
+`forensic.py` extended with `get_chain_of_custody(analysis_id)` and
+`format_audit_for_pdf(entries)` helpers so the report module imports the
+chain-of-custody contract from a single place. `db_manager.set_pdf_path`
+persists the output path on the `analyses` row; orchestrator runs Phase 6
+*after* `mark_completed` so the PDF embeds the final completed_at
+timestamp, then audits `phase_6_completed`. Result page header gets a
+prominent "Download PDF Report" button when `analysis.pdf_path` is set;
+existing `/analysis/<id>/report.pdf` route now serves with a
+human-friendly filename (`secureapk_<pkg>_<id8>.pdf`).
+
+**Forensic guarantees verified:**
+- **APK SHA-256 appears as plain text in the PDF body.** `pageCompression=0`
+  keeps the content stream uncompressed, so a forensic examiner can
+  `grep` the hash without unpacking the PDF. `test_cover_page_contains_apk_hash`
+  asserts `sha.encode() in blob`.
+- **Audit-log appendix chronological.** Pulled via
+  `forensic.get_chain_of_custody`, which is the existing
+  `db_manager.get_audit_log` ordered by `(timestamp, id)`.
+- **Reproducible byte-identical output.** Two back-to-back
+  `report_generator.generate(aid)` calls on a completed analysis produce
+  identical PDFs — `invariant=True` freezes `/CreationDate`, `/ModDate`,
+  `/ID`, and the deterministic finding-sort keys (severity DESC, category,
+  title) keep the body stable. `test_regeneration_is_byte_identical`
+  enforces this.
+- **Hash round-trips.** `forensic.compute_sha256` matches
+  `hashlib.sha256(open(...).read()).hexdigest()` exactly — `test_compute_sha256_matches_hashlib_sha256`.
+
+**Verified working:**
+- `python -m pytest tests/ -v` → **33 passed** (3 db + 6 manifest + 8 source + 5 dynamic + 4 risk + 3 forensic + 4 report)
+- End-to-end smoke: orchestrator runs all phases, PDF lands at
+  `reports/<aid>.pdf` (~17 KB on synthetic APK with 3 findings), `GET
+  /analysis/<aid>/report.pdf` returns 200 with `Content-Type:
+  application/pdf` and the friendly download filename
+- APK hash matches what's stored on the analyses row and what's
+  embedded in the PDF body
+- Download button on result page renders only when
+  `analysis.status == 'completed' and analysis.pdf_path`
+
+**Smoke test PDF metrics:**
+- Synthetic APK (com.demo.app, 3 findings): PDF size **17,095 bytes**
+- Audit log entries on the same run: **11** (analysis_started,
+  hash_verified, manifest_parser, phase_2_completed, source_decompiler,
+  phase_3_completed, phase_5_completed, phase_6_completed,
+  analysis_completed × 2-ish — orchestrator-stamp order)
+- Re-generation of the same analysis: byte-identical (17,095 bytes,
+  asserted equal in the determinism test)
+
+**Pending / deferred:**
+- SBP section in PDF — Phase 7 will add a conditional section when
+  `sbp_enabled` and SBP findings exist
+- Educational-mode expansion content — Phase 8 will inject `remediation`
+  snippets per finding when `educational_enabled`
+- A real DIVA/InsecureShop APK PDF render — env has neither Jadx nor an
+  emulator; synthetic smoke covered the structural correctness.
+  Phase 9 will validate against the real corpus.
+
+**Known issues:**
+- The audit log appendix table uses fixed column widths
+  (5cm/5cm/7cm). On runs with a lot of audit entries the row count can
+  exceed one page; ReportLab Platypus splits the table automatically
+  via `Table(..., repeatRows=1)`. Header re-renders on each page.
+- "Anonymous Analyst" is hardcoded as the analyst label per
+  ARCHITECTURE.md §11.1 — no UI to edit yet. Phase 9 polish could add
+  a form field.
+
+**Mid-execution decisions:**
+- D-13: PDF is generated *after* `mark_completed` (not the other way
+  around). This way the PDF cover embeds the real `completed_at`
+  timestamp instead of NULL. The trade-off: if PDF generation fails the
+  analysis is still marked completed — but with no `pdf_path`. The
+  orchestrator's `phase_6_failed` audit row captures the error
+  ("analysis usable, report missing" — better than "no analysis at all
+  because of a PDF bug").
+- D-14: `pageCompression=0` chosen for grep-ability *and* deterministic
+  bytes — zlib compression introduces non-determinism that defeats
+  byte-identical regeneration. Trade-off: PDF size grows ~3-4x. Worth it
+  for forensic transparency and reproducibility; viva audience can open
+  the PDF in a hex editor and *see* the embedded hash.
+- D-15: `invariant=True` passed to ReportLab so `/CreationDate`,
+  `/ModDate`, and the document `/ID` are frozen rather than stamped
+  from system time. Without this, even with identical content streams
+  the PDF metadata header would change every run.
+- D-16: Finding-sort key `(phase, severity_rank, category, title)` -
+  uses the same severity rank as `risk_engine` (HIGH=0, MEDIUM=1, LOW=2)
+  so HIGH findings come first within their phase. Deterministic AND
+  reader-friendly.
+
+**Files touched:** 3 added, 6 modified.
+
+**Next session picks up at:** Phase 7 — SBP Banking Compliance (Feature 2).
 
 ### Phase 7 — SBP Banking Compliance
 
-_Not yet started._
+**Branch:** `phase-7-sbp-compliance`
+**PR:** [#7](https://github.com/waqaralifarzand/SecureAPK/pull/7) (draft)
+**Completed:** 2026-05-14
+**Test count after this phase:** 37 / 34
+
+**What was built — the second MobSF differentiator ships:**
+`modules/sbp_compliance.py` + `modules/patterns/sbp_rules.py` give SecureAPK
+a dedicated State Bank of Pakistan cybersecurity-framework rule pack
+(currently **10 rules** covering SBP-CSF sections 3.2 / 3.4 / 3.5 / 4.1 /
+4.2 / 4.3 / 5.1 / 5.2 / 6.3 — TLS enforcement, cert pinning, sensitive-data
+logging, hardcoded creds, FLAG_SECURE, root detection, session timeout,
+plaintext storage, biometric auth, networkSecurityConfig). Each rule's
+`check(manifest, source, dynamic)` callable consumes the already-computed
+Phase 2 / 3 / 4 results — SBP is a thin compliance layer, *not* a parallel
+analyzer (per ARCH §11.2). Banking-app heuristic in
+`sbp_compliance.is_banking_app(manifest)`: matches on package substrings
+(`bank`/`pay`/`wallet`/`finance`/`cash`), app-name tokens (`JazzCash`,
+`EasyPaisa`, `HBL`, `MCB`, `UBL`, `Allied`, `Faysal`, `BankIslami`,
+`Meezan`, `Habib`, `Standard Chartered`, `Soneri`, `Askari`), or the
+SMS+CONTACTS+INTERNET permission combo.
+
+**The wiring (this was the bulk of the work):**
+- Orchestrator reordered — Phase 7 now sits **between Phase 4 (Dynamic)
+  and Phase 5 (Risk Engine)**, gated by `options.sbp_enabled`. SBP
+  findings feed the risk engine's `sbp` bucket which had been sitting
+  at 0 since Phase 5.
+- `risk_engine.compute(analysis_id)` extended with
+  `_sbp_findings_as_findings(analysis_id)`: pulls NON_COMPLIANT rows
+  from the `sbp_findings` table, projects them to the standard Finding
+  shape (`phase=7, category='SBP Compliance'`), merges with the primary
+  findings list. Same scoring path applies; `breakdown_by_phase['sbp']`
+  accumulates naturally. The result-page view recomputes risk the same
+  way so the displayed breakdown matches the persisted score.
+- `db_manager.save_sbp_findings()` writes one row per rule (any
+  status); `get_sbp_findings(analysis_id, status_filter=None)` reads
+  back with optional status filter for the risk-engine join.
+- `report_generator` learns a conditional `_build_sbp_section` that
+  ships in the PDF only when `analysis.sbp_enabled=True` — slotted
+  between Source/Dynamic and the OWASP summary.
+- `templates/result.html` gets a conditional SBP Compliance tab nav
+  button + tab panel; `templates/_partials/sbp_card.html` is a new
+  per-rule card. Colour scheme follows CLAUDE.md §5 tokens
+  (compliant = green border, non-compliant = red, manual = cyan accent,
+  not-applicable = grey).
+
+**Verified working:**
+- `python -m pytest tests/ -v` → **37 passed** (3 db + 6 manifest + 8
+  source + 5 dynamic + 4 risk + 3 forensic + 4 report + 4 SBP)
+- End-to-end smoke test with a banking-flavoured synthetic APK
+  (`JazzCash` in DEX strings, banking permission combo, SBP enabled):
+  - Banking heuristic correctly flagged: `banking=True, reason='App name contains jazzcash'`
+  - 10 SBP rows persisted: **3 COMPLIANT, 5 MANUAL_REVIEW, 2 NON_COMPLIANT**
+  - `breakdown_by_phase['sbp'] = 15.0` (non-zero — acceptance criterion 6 ✅)
+  - Result page renders the SBP Compliance tab with summary chips +
+    10 sbp-cards
+  - PDF has the "SBP Cybersecurity Framework Compliance" section
+    (24,035 bytes, up from 17,095 without SBP)
+- Negative path (sbp_enabled=False) — no SBP rows persisted, no SBP
+  tab in HTML, no SBP section in PDF. Verified in
+  `test_sbp_findings_excluded_when_disabled`.
+
+**Risk-engine integration (D-17 / D-18 below):**
+The cleanest integration was to pull SBP non-compliant rows back out at
+risk-compute time rather than insert them into the `findings` table.
+Keeps the per-table semantics clean (`findings` = automatic detections,
+`sbp_findings` = compliance audit) while letting one scoring path
+handle both. Documented in the `compute()` docstring so future readers
+understand the join.
+
+**Pending / deferred:**
+- The auto-trigger logic (banking heuristic forcibly enabling SBP even
+  if the user didn't tick the box) is *not yet wired into the
+  orchestrator*. For this phase, SBP only runs when
+  `options.sbp_enabled=True`. The heuristic is computed and surfaced in
+  the SBP findings output (so the UI can show "Detected as banking
+  app: YES/NO") — the auto-trigger is a Phase 9 polish item.
+- 4 of the 10 rules return `MANUAL_REVIEW` because their checks
+  (FLAG_SECURE on activities, root detection presence, biometric prompt
+  usage, session timeout) cannot be reliably detected by the current
+  static pattern catalog. Phase 9 polish could add dedicated regex
+  patterns to upgrade these to COMPLIANT / NON_COMPLIANT.
+
+**Known issues:**
+- The PDF SBP section is included whenever `analysis.sbp_enabled=True`
+  even if no SBP rows exist (edge case if Phase 7 itself failed). The
+  section degrades gracefully ("SBP compliance was enabled but no rule
+  rows were recorded") so this is non-blocking.
+
+**Mid-execution decisions:**
+- D-17 (decisions log): NON_COMPLIANT SBP rows are joined into the
+  risk engine's findings list **at compute time**, not by being
+  written into the `findings` table. Cleaner semantics, and the join
+  is cheap (10 rows max).
+- D-18: When a rule's `check()` raises, the catch coerces the status
+  to `NOT_APPLICABLE` and logs. Same contract as Phase 4: rule bugs
+  must never crash the analysis.
+- D-19: Conditional rendering uses
+  `{% if analysis.sbp_enabled %}` everywhere (tab nav button, tab panel,
+  PDF section). The single source of truth is the `analyses.sbp_enabled`
+  column persisted at upload time — the UI never re-derives it.
+
+**Files touched:** 4 added, 7 modified.
+
+**Next session picks up at:** Phase 8 — Educational Mode (Feature 3).
 
 ### Phase 8 — Educational Mode
 
-_Not yet started._
+**Branch:** `phase-8-educational-mode`
+**PR:** [#8](https://github.com/waqaralifarzand/SecureAPK/pull/8) (draft)
+**Completed:** 2026-05-14
+**Test count after this phase:** 39 / 34
+
+**What was built - the third MobSF differentiator ships:**
+Educational Mode turns each Phase-3 source-code finding into an
+expandable card showing (1) the vulnerable code snippet, (2) the fixed
+version, (3) a plain-English "why this matters". Heavy lifting was
+already done in Phase 3 — every entry in `vuln_patterns.py` shipped with
+a complete `remediation` dict. Phase 8 is the lookup + UI + PDF
+integration on top:
+
+- `modules/educational.py` — thin lookup: `get_remediation_for_finding(
+  finding_id)` reads the finding via `db_manager.get_finding(id)`, joins
+  to `_REMEDIATION_BY_PATTERN_ID` (built once at import time from
+  `VULN_PATTERNS`), returns the dict or `None`. Also exposes
+  `get_remediation_for_pattern(pattern_id)` for the PDF generator which
+  iterates findings without going through the DB id route.
+- `GET /api/finding/<id>/educational` — Flask route returns JSON
+  `{vulnerable_snippet, fixed_snippet, explanation}` or 404 with
+  `{"error": ...}` when the finding has no pattern_id, doesn't exist,
+  or carries a pattern_id absent from the catalog.
+- `_partials/finding_card.html` — conditional expand button: renders
+  only when `analysis.educational_enabled AND finding.pattern_id AND
+  finding.phase == 3`. Manifest (Phase 2), dynamic (Phase 4), and SBP
+  (Phase 7) finding cards stay clean even with the mode on.
+- `static/js/result.js` — vanilla-JS click handler (no framework). On
+  expand: XHR + render three colour-coded sections inline. On
+  re-expand: serve from `data-educational-loaded="1"` cache. Collapse
+  hides without destroying the DOM. `result.js` is conditionally
+  included from `templates/result.html` only when
+  `analysis.educational_enabled`.
+- CSS uses CLAUDE.md §5 severity tokens with low-alpha tints — red
+  `rgba(255,77,79,.08)` for vulnerable, green `rgba(82,196,26,.08)` for
+  fixed, neutral surface for the explanation.
+- `report_generator._append_educational_block` slots the same three
+  panels into the PDF body under each source finding when
+  `analysis.educational_enabled=True`. Uses ReportLab Table cells with
+  HexColor tints matching the screen styling.
+- `db_manager.get_finding(finding_id)` — new single-row helper indexed
+  on the PRIMARY KEY column. Keeps the no-raw-SQL-outside-db_manager
+  rule intact.
+
+**Verified working:**
+- `python -m pytest tests/ -v` → **39 passed** (3 db + 6 manifest + 8
+  source + 5 dynamic + 4 risk + 3 forensic + 4 report + 4 SBP + 2
+  educational)
+- End-to-end smoke test (Flask test client, synthetic APK,
+  `educational_enabled=True`):
+  - 4 educational-toggle buttons rendered (2 source findings ×
+    appearance on Source Code tab and Risk top-issues tab)
+  - `/api/finding/<id>/educational` for a source finding → **200 +
+    `{explanation, fixed_snippet, vulnerable_snippet}`**
+  - Same endpoint for a manifest finding → **404 + `{"error": "No
+    educational content for this finding"}`** as designed
+  - PDF size 22,186 bytes (up from 17,095 baseline without educational
+    mode) and contains the literal string "Why this matters"
+- All 34 patterns in `VULN_PATTERNS` have a complete remediation dict —
+  re-asserted in `test_every_pattern_has_complete_remediation_dict`
+  (Phase 3 already had this; Phase 8 keeps a copy in its own test file
+  so the contract is visible to anyone touching Educational Mode).
+
+**Pending / deferred:**
+- A markdown-style code highlighter for the educational snippets was
+  intentionally NOT added per PHASES.md scope ("no Prism.js, no
+  Highlight.js — extra dep, not worth it for a single language").
+  Monospace font + tinted background does the job.
+- Manifest, dynamic, and SBP findings do not get educational content
+  per ARCH §11.3. They could in Phase 9 if Nayab wants a "general
+  recommendation" block for non-source findings, but that's outside
+  Phase 8's contract.
+
+**Known issues:**
+- The 404 JSON body uses key `"error"`, not the more idiomatic
+  `"detail"` or `"message"`. Matches the existing
+  `/api/analysis/<id>/status` 404 convention from Phase 1, so the API
+  surface is consistent.
+
+**Mid-execution decisions:**
+- D-20: `educational.py` builds a `dict[pattern_id, remediation]` lookup
+  at module import time, not on every request. O(1) per finding
+  thereafter; saves a re-scan of the 34-entry catalog. The lookup is
+  refreshed only on process restart — fine, since patterns are static
+  code.
+- D-21: Expand button renders only on Phase-3 findings (`finding.phase
+  == 3`). Even if a Phase 2 or 7 finding *somehow* carried a
+  source-catalog pattern_id (it doesn't, but defensively) the UI would
+  not show the toggle — keeps the differentiator scoped to where the
+  pedagogy makes sense.
+- D-22: result.js is gated at the template level
+  (`{% if analysis.educational_enabled %}`) so the script is not
+  shipped at all on analyses where the mode is off. Zero JS overhead
+  for the no-educational case.
+- D-23: Educational content is rendered inline in the PDF
+  (immediately after the finding card) rather than as a separate
+  appendix. Same physical placement as the on-screen expansion, so
+  Nayab can walk a viva audience through the report and the screen in
+  lockstep.
+
+**Files touched:** 3 added, 6 modified.
+
+**Next session picks up at:** Phase 9 — Testing & Polish (the final
+phase). Backfill to 34+ tests (we're already at 39), end-to-end smoke
+tests, README polish, viva walkthrough.
 
 ### Phase 9 — Testing & Polish
 
-_Not yet started._
+**Branch:** `phase-9-testing-polish`
+**PR:** [#9](https://github.com/waqaralifarzand/SecureAPK/pull/9) (draft)
+**Completed:** 2026-05-14
+**Test count after this phase:** 42 / 34
+**Coverage (modules/):** 88%
+
+**What was built — the project is now feature-complete:**
+End-to-end orchestrator tests (happy path + failure path) with the per-
+phase analyzer modules monkeypatched to return canned data. The happy
+path asserts the analyses row reaches `status='completed'` with
+`risk_classification` set and `pdf_path` populated, and that the audit
+log contains every `phase_X_completed` entry in dependency order
+(detection → phase_5 → phase_6 → analysis_completed). The failure path
+patches the manifest analyzer to raise and asserts the analysis is
+marked `failed` with an `analysis_failed` audit row and no phase
+completions logged. Performance benchmark in `test_performance.py` runs
+Phases 2 + 3 against a 2000-line synthetic DEX-strings payload and
+asserts under 60 seconds (actual on this box: well under 1 second). The
+benchmark prints actual timing on assertion failure so a slow CI box
+produces an actionable message, not just "AssertionError".
+
+UI polish: empty-state on `dashboard.html` ("No analyses yet — upload
+your first APK") with a primary CTA; `:focus-visible` rings on
+buttons / tabs / educational toggles using the accent token from
+CLAUDE.md §5; row-hover on tables; consistent empty-state component
+styling.
+
+README rewritten from a Phase-1-stub into a 280-line viva-defensible
+document: elevator pitch + three-differentiators block (one paragraph
+each), quick-start, detailed setup (required vs optional tools, env
+vars), usage walkthrough (incl. the `sha256sum` → `grep` forensic-
+verification trick), architecture overview diagram, "adding new
+detection patterns" section showing the `vuln_patterns.py` entry
+template, troubleshooting matrix, references list (OWASP MTW10 2024,
+CWE, SBP framework, DIVA / InsecureShop / AndroGoat, Jadx, ReportLab),
+and the **viva-prep checklist** — 19 specific demoable items grouped
+into Concepts / Architecture / Demos / Defensive answers.
+
+**Verified working:**
+- `python -m pytest tests/ -v` → **42 passed** in ~5s
+  (3 db + 6 manifest + 8 source + 5 dynamic + 4 risk + 3 forensic +
+   4 report + 4 SBP + 2 educational + 2 orchestrator + 1 performance)
+- `pytest --cov=modules tests/` → **88% line coverage** on the
+  `modules/` package. Per-module: educational 100%, owasp_cwe_map
+  100%, permissions 100%, runtime_events 100%, vuln_patterns 100%,
+  risk_engine 98%, forensic 97%, db_manager 95%, manifest_analyzer
+  91%, report_generator 90%, analyzer 87%, source_analyzer 86%,
+  sbp_compliance 81%, sbp_rules 78%, dynamic_analyzer 76%.
+- `pytest -W error::DeprecationWarning` → all green, no deprecations
+- Full end-to-end smoke test on a synthetic banking-flavoured APK
+  with all three toggles enabled (dynamic + SBP + educational):
+    * Time: **0.36s** (well under the 3-minute acceptance criterion)
+    * Score / classification: **57 / MEDIUM**
+    * Findings: **9** (6 manifest + 3 source; dynamic skipped because
+      no emulator)
+    * SBP rows: 10 (3 NON_COMPLIANT including TLS, NSC absence,
+      hardcoded credentials)
+    * PDF size: **33,287 bytes**; SHA-256 grep-able from raw bytes ✅
+    * Result page renders all 6 tabs (Manifest / Source / Dynamic /
+      Risk / Permissions / SBP); 6 educational-toggle buttons
+      attached to source findings; risk-badge in title row
+- README rendered locally — the quick-start block fits on one screen;
+  the viva checklist has 19 actionable items.
+
+**Pending / deferred (genuinely outside Phase 9 scope):**
+- **Real-emulator dynamic-analysis validation.** Env has no AVD;
+  Nayab must run `python app.py` against a running emulator to
+  confirm the `completed` status path in addition to the
+  `skipped_no_emulator` path which IS covered.
+- **Real DIVA / InsecureShop runs.** Smoke tests use synthetic APKs
+  because committing binaries is forbidden; Phase 9 acceptance
+  criterion 3 (3-minute manual test on real APK) requires Nayab to
+  drop a real APK into `tests/fixtures/sample_apks/` and run the
+  upload flow locally before tagging v1.0.0.
+- **SBP auto-trigger via banking heuristic.** Phase 7 implements
+  the heuristic but the orchestrator still gates SBP on the explicit
+  `sbp_enabled` toggle. Wiring `if heuristic_says_banking_app:
+  options.sbp_enabled=True` is a small Phase 9.x polish — not done
+  here because it's a behaviour change, not a polish, and PHASES.md
+  explicitly said "NO new features" for Phase 9.
+- **Editable analyst-name field on the PDF cover.** Currently
+  hardcoded to "Anonymous Analyst" per ARCH §11.1. Adding a form
+  field is a UI change worth a follow-up.
+- **MANUAL_REVIEW upgrades.** 4 of 10 SBP rules currently return
+  MANUAL_REVIEW because the Phase 3 pattern catalog doesn't have
+  dedicated detectors for FLAG_SECURE, BiometricPrompt, root
+  detection, or session timeout. Phase 9.x could add patterns to
+  upgrade these to COMPLIANT/NON_COMPLIANT.
+
+**Known issues:**
+- None blocking. The deferred items above are scope choices, not
+  bugs.
+
+**Mid-execution decisions:**
+- D-24: Phase 9 explicitly does NOT add new features even where
+  prior phases left polish hooks. Items listed under "Pending /
+  deferred" above are tracked here and documented in the README
+  troubleshooting / setup sections so a reviewer can find them.
+- D-25: Performance benchmark prints actual elapsed seconds on
+  assertion failure (the assertion message is `f"... took {elapsed:.2f}s,
+  exceeding the {MAX_SECONDS}s budget"`). A flaky-machine fail is
+  immediately actionable.
+
+**Files touched:** 3 added (tests + tests + tests), 3 modified
+(README, dashboard.html, main.css).
+
+**Next session picks up at:** v1.0.0 tag + viva rehearsal. The
+project is feature-complete.
 
 ---
 
@@ -254,7 +995,330 @@ Format:
 **Reversible?** Easy / Hard / Irreversible
 ```
 
-_No decisions logged yet._
+### D-1: aapt fallback uses `dump badging`, not `dump xmltree`
+**Made in:** Phase 2
+**Date:** 2026-05-14
+**Decision:** The aapt fallback (level 2 of the manifest fallback chain)
+calls `aapt dump badging <apk>` and regex-parses the key=value output,
+rather than `aapt dump xmltree <apk> AndroidManifest.xml`.
+**Reasoning:** Badging output is line-oriented and trivially regex-parseable
+for the metadata we need (package, version, target/min SDK, label,
+permissions). xmltree's indentation-based representation requires a
+stateful parser and the result is no richer for our purposes.
+The trade-off: badging does not enumerate components, so under this
+fallback the exported-components section is empty. PyAXMLParser is the
+primary parser for any real APK and yields full component data.
+**Reversible?** Easy — swap the subprocess args + regexes if Phase 9 finds
+that real-world APK robustness needs the xmltree output.
+
+### D-2: Implicit-export heuristic for components without `android:exported`
+**Made in:** Phase 2
+**Date:** 2026-05-14
+**Decision:** A component without an explicit `android:exported` attribute
+is treated as exported iff it declares at least one `<intent-filter>` child.
+**Reasoning:** This matches the *legacy* Android default (pre-API 31).
+API 31+ requires the attribute to be explicit when an intent-filter is
+present — but we still encounter older APKs and the legacy rule is what
+MobSF and the literature review's referenced rules use. Erring toward
+"exported" is also the safer default for a security tool.
+**Reversible?** Easy — single conditional in
+`manifest_analyzer._component_from_element`.
+
+### D-4: Per-(pattern_id, file) dedup is short-circuit, not post-filter
+**Made in:** Phase 3
+**Date:** 2026-05-14
+**Decision:** When scanning a `.java` file for a given pattern, stop at the
+first line that matches and skip the rest. Tracked via a
+`seen_keys: set[(pattern_id, file)]` set.
+**Reasoning:** Patterns like `printStackTrace()` or `setJavaScriptEnabled(true)`
+hit dozens of times in large decompiled outputs. A short-circuit halves the
+regex work versus collecting then filtering. The trade-off is that the
+saved `line_number` is the *first* hit only — fine for steering a developer
+to the file; richer "all hits" reporting can be added in Phase 9 if needed.
+**Reversible?** Easy — drop the `break` and post-filter the findings list.
+
+### D-5: Jadx non-zero exit codes are tolerated if .java output exists
+**Made in:** Phase 3
+**Date:** 2026-05-14
+**Decision:** `source_analyzer._analyze_with_jadx` ignores Jadx's exit code
+and only raises if **no** `.java` files were produced in the output dir.
+**Reasoning:** Jadx returns non-zero whenever any class fails to
+decompile — common on real-world APKs that the literature review flags
+(obfuscated, multi-dex, signed with newer formats). The disk artefacts are
+still usable. Trusting the filesystem over the return code matches what
+MobSF and the academic Jadx-wrapper tools do.
+**Reversible?** Easy — re-add an `if proc.returncode != 0: raise` check.
+
+### D-7: DynamicAnalysisResult is a plain dict, not a dataclass
+**Made in:** Phase 4
+**Date:** 2026-05-14
+**Decision:** `dynamic_analyzer.analyze()` returns a `dict[str, Any]`
+matching the ARCHITECTURE.md §6 shape, not a typed dataclass.
+**Reasoning:** Phase 2 (manifest) and Phase 3 (source) already return
+dicts; uniformity matters for `db_manager.save_*` helpers and for the
+orchestrator's audit-log details. No external consumer needs strong
+typing here. If Phase 9 wants type safety we can add a `TypedDict`
+without changing any caller.
+**Reversible?** Easy — wrap the return in a TypedDict / dataclass.
+
+### D-8: Logcat first-match wins — categories are not multi-tagged
+**Made in:** Phase 4
+**Date:** 2026-05-14
+**Decision:** When a logcat line matches multiple category regexes, only
+the *first* category in the catalog order from ARCHITECTURE.md §11 is
+emitted as an event.
+**Reasoning:** Avoids double-counting (an `SSLException` line could match
+both SSL_VALIDATION_EXCEPTION and SECURITY_SENSITIVE_CRASH); makes the
+events list deterministic; matches what MobSF's logcat post-processor
+does. The catalog order in ARCHITECTURE.md §11 was chosen specifically
+so the more specific category comes first.
+**Reversible?** Easy — drop the `break` in `_classify_logcat`.
+
+### D-10: `risk_score` stored as normalized integer, raw data recomputed
+**Made in:** Phase 5
+**Date:** 2026-05-14
+**Decision:** The `analyses.risk_score` column persists the *normalized*
+(0-100) integer plus the classification string. The raw score, phase
+breakdown, top issues, and OWASP/CWE aggregations are recomputed by the
+view from the findings rows on every result-page render.
+**Reasoning:** Persisting every derived field would either bloat the §4
+schema or require a new table. Recomputing is cheap (O(N) over findings,
+typically < 100 rows) and keeps the chapter-cited "risk_score 0-100" as
+the only persisted scalar. The audit_log captures `score` and
+`classification` so the forensic story is complete.
+**Reversible?** Easy — add columns to `analyses` and write them in
+`save_risk` if Phase 9 wants to denormalise.
+
+### D-11: Two public entry points — `compute` + `compute_from_findings`
+**Made in:** Phase 5
+**Date:** 2026-05-14
+**Decision:** `risk_engine` exposes both `compute(analysis_id)` (DB-backed)
+and `compute_from_findings(findings)` (pure function over a list).
+**Reasoning:** The orchestrator wants DB-backed; the view wants in-memory
+recomputation from already-loaded findings; tests want pure functions
+without DB plumbing. Three callers, three needs, one shared core.
+**Reversible?** Trivially — collapse into one function with an optional arg.
+
+### D-13: PDF generated AFTER mark_completed, failures don't fail the analysis
+**Made in:** Phase 6
+**Date:** 2026-05-14
+**Decision:** The orchestrator calls `db_manager.mark_completed(aid)` BEFORE
+`report_generator.generate(aid)`. PDF generation runs in its own try/except;
+on failure, `phase_6_failed` is audited but the analysis status remains
+`completed` (with `pdf_path=NULL`).
+**Reasoning:** A PDF rendering bug should not invalidate a successful
+analysis. The user can still see the result page with full findings;
+they just can't download a PDF until the bug is fixed. Also, generating
+the PDF after `mark_completed` lets the cover page embed the final
+`completed_at` timestamp rather than NULL.
+**Reversible?** Easy — swap the two calls if Phase 9 wants a different policy.
+
+### D-14: pageCompression=0 (uncompressed PDF streams)
+**Made in:** Phase 6
+**Date:** 2026-05-14
+**Decision:** `SimpleDocTemplate(..., pageCompression=0)`.
+**Reasoning:** Two benefits, one cost. Benefit 1: the APK SHA-256 (and
+every other report string) appears as plain text in the raw PDF bytes,
+so forensic examiners can `grep` the file without parsing it. Benefit 2:
+zlib compression isn't byte-deterministic, so disabling it is what makes
+back-to-back regenerations byte-identical. Cost: PDF files are ~3-4×
+larger (17 KB instead of ~5 KB on the smoke APK). Worth it.
+**Reversible?** Easy — re-enable compression when forensic transparency
+isn't required.
+
+### D-15: invariant=True (frozen PDF metadata)
+**Made in:** Phase 6
+**Date:** 2026-05-14
+**Decision:** Pass `invariant=True` through to ReportLab so
+`/CreationDate`, `/ModDate`, and the document `/ID` are frozen.
+**Reasoning:** Without it, even identical content streams produce
+different PDF bytes because the trailer metadata is timestamped from the
+system clock. With `invariant=True` + `pageCompression=0` + deterministic
+finding sort, byte-identical regeneration is achievable.
+**Reversible?** Easy — drop the kwarg.
+
+### D-17: SBP integration joins NON_COMPLIANT rows at risk-compute time
+**Made in:** Phase 7
+**Date:** 2026-05-14
+**Decision:** NON_COMPLIANT SBP rule rows are read back from
+`sbp_findings` (via `get_sbp_findings(status_filter='NON_COMPLIANT')`) at
+risk-compute time and projected to the standard Finding shape (phase=7,
+category='SBP Compliance'). They are NOT inserted into the `findings`
+table.
+**Reasoning:** Two clean semantics — `findings` = automatic detections
+from Phases 2/3/4, `sbp_findings` = compliance audit log. One scoring
+path handles both because the projection at compute time normalises the
+shape. Cost: a single extra DB read per risk computation (10 rows max).
+**Reversible?** Easy — also write SBP findings into `findings` and drop
+the projection, if Phase 9 wants a single-table view.
+
+### D-18: SBP rule-check exceptions degrade to NOT_APPLICABLE
+**Made in:** Phase 7
+**Date:** 2026-05-14
+**Decision:** `sbp_compliance.analyze` wraps each rule's `check()` call
+in a broad try/except. On exception the status is coerced to
+`NOT_APPLICABLE` with the error message as evidence; analysis continues.
+**Reasoning:** Same contract Phase 4 (dynamic) uses — rule bugs must
+never crash the analysis. The forensic appendix still records that the
+rule was attempted; future polish can upgrade the status to a dedicated
+"ERROR" state.
+**Reversible?** Easy — drop the catch.
+
+### D-20: Educational lookup table built at import time
+**Made in:** Phase 8
+**Date:** 2026-05-14
+**Decision:** `modules/educational.py` builds
+`_REMEDIATION_BY_PATTERN_ID = {p['id']: p['remediation'] for p in
+VULN_PATTERNS}` at import time.
+**Reasoning:** 34-entry catalog × every educational request would be
+wasteful; building the dict once is trivially fast. Patterns are static
+Python data, so the lookup never goes stale within a process lifetime.
+**Reversible?** Trivially — replace with a generator if memory ever
+matters.
+
+### D-21: Expand button rendered only on Phase 3 findings
+**Made in:** Phase 8
+**Date:** 2026-05-14
+**Decision:** `finding_card.html` gates the expand button on
+`analysis.educational_enabled AND finding.pattern_id AND
+finding.phase == 3`. Phase 2 (manifest), 4 (dynamic) and 7 (SBP)
+findings get no toggle even with the mode on.
+**Reasoning:** Educational content lives only in
+`vuln_patterns.py` per ARCH §11.3. Even if a non-Phase-3 finding
+somehow carried a source-pattern id, the toggle would be pedagogically
+wrong on a manifest "dangerous permission" card. The phase check makes
+the intent explicit.
+**Reversible?** Easy — drop the phase predicate.
+
+### D-22: result.js conditionally included
+**Made in:** Phase 8
+**Date:** 2026-05-14
+**Decision:** `<script src=".../js/result.js">` is included only when
+`analysis.educational_enabled=True`. Other analyses ship zero
+educational-mode JS.
+**Reasoning:** Smaller payload + no event-listener overhead for the
+common case (Nayab toggles educational mode for demos, not for every
+analysis). The flag is persisted on the analyses row, so the include
+decision is deterministic.
+**Reversible?** Trivially.
+
+### D-24: Phase 9 holds the "no new features" line strictly
+**Made in:** Phase 9
+**Date:** 2026-05-14
+**Decision:** Phase 9 polish does NOT touch the SBP auto-trigger,
+analyst-name field, or the four MANUAL_REVIEW SBP rules — even though
+all three were called out as Phase 9 polish candidates in earlier
+SCRATCHPAD entries. Documented as "Pending / deferred" with the
+reasoning instead.
+**Reasoning:** PHASES.md sec Phase 9 is explicit: "NO new features.
+Anything that should have been done in Phases 1-8 belongs in those
+branches, not here." Adding the auto-trigger is a behaviour change; the
+analyst field is a new UI input; the SBP rules need new patterns. Each
+deserves its own focused PR if it lands. Slipping them into the
+final-polish PR would muddy the chapter-claim mapping and the viva
+walkthrough.
+**Reversible?** Trivial — open follow-up PRs once Phase 9 merges.
+
+### D-25: Performance benchmark prints actual timing on failure
+**Made in:** Phase 9
+**Date:** 2026-05-14
+**Decision:** `tests/test_performance.py` formats the assertion message
+as `f"... took {elapsed:.2f}s, exceeding the {MAX_SECONDS}s budget"`
+and also prints the same timing on success.
+**Reasoning:** A slow-CI failure that says only "AssertionError" wastes
+debugging time. With actual seconds in the message, the failure tells
+you whether you're 5% over (machine load) or 5x over (regression).
+**Reversible?** Trivial.
+
+### D-23: Educational PDF content rendered inline, not appendix
+**Made in:** Phase 8
+**Date:** 2026-05-14
+**Decision:** When `educational_enabled=True`, the PDF emits the
+three remediation panels immediately under each source finding's card,
+not as a separate "Educational Content" appendix.
+**Reasoning:** Mirrors the on-screen UX exactly — readers (and viva
+audiences) can read the report and watch Nayab demo the click-to-expand
+on screen in lockstep. An appendix would force them to flip pages.
+**Reversible?** Easy — move the call out of `_build_source_section`.
+
+### D-19: Single source of truth for SBP conditional rendering
+**Made in:** Phase 7
+**Date:** 2026-05-14
+**Decision:** Every conditional ("SBP tab visible?", "SBP PDF section
+present?") reads `analyses.sbp_enabled` directly — never re-derives.
+**Reasoning:** Persisting the option at upload time means the result
+page is consistent with what actually ran. Re-deriving from sbp_findings
+count would lie when SBP was enabled but produced 0 NON_COMPLIANT rows.
+**Reversible?** Trivially — but there's no reason to.
+
+### D-16: Finding-sort key is (phase, severity_rank, category, title)
+**Made in:** Phase 6
+**Date:** 2026-05-14
+**Decision:** PDF findings are sorted by `(phase, severity_rank,
+category, title)` before rendering, where `severity_rank` matches the
+risk engine's ordering (HIGH=0, MEDIUM=1, LOW=2).
+**Reasoning:** Two needs at once. Determinism: the DB's `ORDER BY phase,
+severity` is alphabetical (HIGH < LOW < MEDIUM) — not what a reader
+wants. Reader-friendliness: HIGH findings appear before MEDIUM appear
+before LOW within each phase. Same rank used elsewhere keeps the report
+and result page in agreement.
+**Reversible?** Easy — change `_SEVERITY_RANK`.
+
+### D-12: OWASP aggregation falls back to category mapping
+**Made in:** Phase 5
+**Date:** 2026-05-14
+**Decision:** When a finding row has no `owasp_id` set (typical for Phase
+4 dynamic findings), the aggregator falls back to
+`CATEGORY_TO_OWASP[category]`. Same for `cwe_id` via `CATEGORY_TO_CWE`.
+**Reasoning:** Phase 4 dynamic findings deliberately leave `owasp_id` /
+`cwe_id` as None on the row because runtime events don't map 1:1 to
+static OWASP categories. The category-level fallback gives the
+result-page OWASP table a fair shot at being populated. Without it, a
+dynamic-only analysis would report "no OWASP categories triggered" even
+when the runtime caught cleartext HTTP.
+**Reversible?** Easy — remove the fallback to enforce strict
+per-finding tagging.
+
+### D-9: One finding per *unique category*, not per event
+**Made in:** Phase 4
+**Date:** 2026-05-14
+**Decision:** `runtime_events` rows preserve the full per-line detail
+(with a `count` field collapsing identical lines), but `findings` rows
+get one entry per unique `category_id` only.
+**Reasoning:** Without this, a chatty cleartext API client could produce
+hundreds of HIGH finding cards on the result page. The runtime_events
+table still contains the forensic detail; the findings list stays
+navigable. Phase 5's risk engine will weight by severity × category — it
+doesn't care about per-line counts.
+**Reversible?** Easy — change `_events_to_findings` to emit one finding
+per event.
+
+### D-6: Source snippets capture ±1 lines of context, stripped
+**Made in:** Phase 3
+**Date:** 2026-05-14
+**Decision:** `code_snippet` includes the matching line plus one line above
+and below, joined with `\n` and stripped of leading/trailing whitespace.
+**Reasoning:** Single-line snippets are often inscrutable in viva
+walkthroughs (the matched line is `return true;` from a hostname
+verifier, etc.). Three lines is enough to show the surrounding scope
+without bloating the `findings.code_snippet` column. The DEX-strings
+fallback never has snippets at all — that's a documented limitation of
+the fallback, not a regression.
+**Reversible?** Easy — change the `_snippet` helper bounds.
+
+### D-3: `parser_used` recorded in `audit_log`, not in `analyses`
+**Made in:** Phase 2
+**Date:** 2026-05-14
+**Decision:** The chosen manifest parser (`pyaxmlparser` | `aapt` |
+`dex_strings`) is persisted as an `audit_log` row
+(`action='manifest_parser', details=<value>`) rather than as a new column
+on `analyses`.
+**Reasoning:** Keeps the §4 schema verbatim — no migration churn — and the
+forensic chain-of-custody already wants to capture this kind of state
+transition. The result-page renderer reads it back from `audit_log` and
+exposes it as `parser_used` on the result view.
+**Reversible?** Easy — add an `analyses.parser_used TEXT` column in Phase 9
+polish if the audit-log lookup proves clumsy.
 
 ---
 
