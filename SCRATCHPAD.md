@@ -445,7 +445,7 @@ coded status banner (green/amber/red) that maps `completed` / `partial` /
 ### Phase 5 — Risk Engine + OWASP/CWE Mapping
 
 **Branch:** `phase-5-risk-engine`
-**PR:** _(opened as draft, URL filled in after the PR is created)_
+**PR:** [#5](https://github.com/waqaralifarzand/SecureAPK/pull/5) (draft)
 **Completed:** 2026-05-14
 **Test count after this phase:** 26 / 34
 
