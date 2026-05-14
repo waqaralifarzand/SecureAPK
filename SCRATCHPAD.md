@@ -355,7 +355,7 @@ collapses gracefully under the `dex_strings` fallback.
 ### Phase 4 — Dynamic Analyzer
 
 **Branch:** `phase-4-dynamic-analyzer`
-**PR:** _(opened as draft, URL filled in after the PR is created)_
+**PR:** [#4](https://github.com/waqaralifarzand/SecureAPK/pull/4) (draft)
 **Completed:** 2026-05-14
 **Test count after this phase:** 22 / 34
 
