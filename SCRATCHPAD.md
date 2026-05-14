@@ -851,7 +851,7 @@ tests, README polish, viva walkthrough.
 ### Phase 9 — Testing & Polish
 
 **Branch:** `phase-9-testing-polish`
-**PR:** _(opened as draft, URL filled in after the PR is created)_
+**PR:** [#9](https://github.com/waqaralifarzand/SecureAPK/pull/9) (draft)
 **Completed:** 2026-05-14
 **Test count after this phase:** 42 / 34
 **Coverage (modules/):** 88%
