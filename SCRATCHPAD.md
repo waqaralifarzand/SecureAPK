@@ -635,7 +635,7 @@ human-friendly filename (`secureapk_<pkg>_<id8>.pdf`).
 ### Phase 7 — SBP Banking Compliance
 
 **Branch:** `phase-7-sbp-compliance`
-**PR:** _(opened as draft, URL filled in after the PR is created)_
+**PR:** [#7](https://github.com/waqaralifarzand/SecureAPK/pull/7) (draft)
 **Completed:** 2026-05-14
 **Test count after this phase:** 37 / 34
 
