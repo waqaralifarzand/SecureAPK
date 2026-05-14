@@ -19,10 +19,11 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 | 5 — Risk Engine + OWASP/CWE | ✅ Merged | 2026-05-14 | 2026-05-14 | [#5](https://github.com/waqaralifarzand/SecureAPK/pull/5) |
 | 6 — PDF Reports + Forensic | ✅ Merged | 2026-05-14 | 2026-05-14 | [#6](https://github.com/waqaralifarzand/SecureAPK/pull/6) |
 | 7 — SBP Banking Compliance | ✅ Merged | 2026-05-14 | 2026-05-14 | [#7](https://github.com/waqaralifarzand/SecureAPK/pull/7) |
-| 8 — Educational Mode | 🔄 PR open | 2026-05-14 | 2026-05-14 | _(see entry below)_ |
-| 9 — Testing & Polish | ⬜ Not started | — | — | — |
+| 8 — Educational Mode | ✅ Merged | 2026-05-14 | 2026-05-14 | [#8](https://github.com/waqaralifarzand/SecureAPK/pull/8) |
+| 9 — Testing & Polish | 🔄 PR open | 2026-05-14 | 2026-05-14 | _(see entry below)_ |
 
-**Running test count:** 39 / 34 target
+**Running test count:** 42 / 34 target (✅ exceeded by 8)
+**Coverage (modules/):** 88%
 
 ---
 
@@ -30,7 +31,7 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 
 - **Repo:** https://github.com/waqaralifarzand/SecureAPK
 - **Default branch:** `main`
-- **Active branch:** `phase-8-educational-mode` (Phase 8)
+- **Active branch:** `phase-9-testing-polish` (Phase 9 — final)
 - **Local dev URL:** http://127.0.0.1:5000 _(when `python app.py` is running)_
 
 ---
@@ -849,7 +850,114 @@ tests, README polish, viva walkthrough.
 
 ### Phase 9 — Testing & Polish
 
-_Not yet started._
+**Branch:** `phase-9-testing-polish`
+**PR:** _(opened as draft, URL filled in after the PR is created)_
+**Completed:** 2026-05-14
+**Test count after this phase:** 42 / 34
+**Coverage (modules/):** 88%
+
+**What was built — the project is now feature-complete:**
+End-to-end orchestrator tests (happy path + failure path) with the per-
+phase analyzer modules monkeypatched to return canned data. The happy
+path asserts the analyses row reaches `status='completed'` with
+`risk_classification` set and `pdf_path` populated, and that the audit
+log contains every `phase_X_completed` entry in dependency order
+(detection → phase_5 → phase_6 → analysis_completed). The failure path
+patches the manifest analyzer to raise and asserts the analysis is
+marked `failed` with an `analysis_failed` audit row and no phase
+completions logged. Performance benchmark in `test_performance.py` runs
+Phases 2 + 3 against a 2000-line synthetic DEX-strings payload and
+asserts under 60 seconds (actual on this box: well under 1 second). The
+benchmark prints actual timing on assertion failure so a slow CI box
+produces an actionable message, not just "AssertionError".
+
+UI polish: empty-state on `dashboard.html` ("No analyses yet — upload
+your first APK") with a primary CTA; `:focus-visible` rings on
+buttons / tabs / educational toggles using the accent token from
+CLAUDE.md §5; row-hover on tables; consistent empty-state component
+styling.
+
+README rewritten from a Phase-1-stub into a 280-line viva-defensible
+document: elevator pitch + three-differentiators block (one paragraph
+each), quick-start, detailed setup (required vs optional tools, env
+vars), usage walkthrough (incl. the `sha256sum` → `grep` forensic-
+verification trick), architecture overview diagram, "adding new
+detection patterns" section showing the `vuln_patterns.py` entry
+template, troubleshooting matrix, references list (OWASP MTW10 2024,
+CWE, SBP framework, DIVA / InsecureShop / AndroGoat, Jadx, ReportLab),
+and the **viva-prep checklist** — 19 specific demoable items grouped
+into Concepts / Architecture / Demos / Defensive answers.
+
+**Verified working:**
+- `python -m pytest tests/ -v` → **42 passed** in ~5s
+  (3 db + 6 manifest + 8 source + 5 dynamic + 4 risk + 3 forensic +
+   4 report + 4 SBP + 2 educational + 2 orchestrator + 1 performance)
+- `pytest --cov=modules tests/` → **88% line coverage** on the
+  `modules/` package. Per-module: educational 100%, owasp_cwe_map
+  100%, permissions 100%, runtime_events 100%, vuln_patterns 100%,
+  risk_engine 98%, forensic 97%, db_manager 95%, manifest_analyzer
+  91%, report_generator 90%, analyzer 87%, source_analyzer 86%,
+  sbp_compliance 81%, sbp_rules 78%, dynamic_analyzer 76%.
+- `pytest -W error::DeprecationWarning` → all green, no deprecations
+- Full end-to-end smoke test on a synthetic banking-flavoured APK
+  with all three toggles enabled (dynamic + SBP + educational):
+    * Time: **0.36s** (well under the 3-minute acceptance criterion)
+    * Score / classification: **57 / MEDIUM**
+    * Findings: **9** (6 manifest + 3 source; dynamic skipped because
+      no emulator)
+    * SBP rows: 10 (3 NON_COMPLIANT including TLS, NSC absence,
+      hardcoded credentials)
+    * PDF size: **33,287 bytes**; SHA-256 grep-able from raw bytes ✅
+    * Result page renders all 6 tabs (Manifest / Source / Dynamic /
+      Risk / Permissions / SBP); 6 educational-toggle buttons
+      attached to source findings; risk-badge in title row
+- README rendered locally — the quick-start block fits on one screen;
+  the viva checklist has 19 actionable items.
+
+**Pending / deferred (genuinely outside Phase 9 scope):**
+- **Real-emulator dynamic-analysis validation.** Env has no AVD;
+  Nayab must run `python app.py` against a running emulator to
+  confirm the `completed` status path in addition to the
+  `skipped_no_emulator` path which IS covered.
+- **Real DIVA / InsecureShop runs.** Smoke tests use synthetic APKs
+  because committing binaries is forbidden; Phase 9 acceptance
+  criterion 3 (3-minute manual test on real APK) requires Nayab to
+  drop a real APK into `tests/fixtures/sample_apks/` and run the
+  upload flow locally before tagging v1.0.0.
+- **SBP auto-trigger via banking heuristic.** Phase 7 implements
+  the heuristic but the orchestrator still gates SBP on the explicit
+  `sbp_enabled` toggle. Wiring `if heuristic_says_banking_app:
+  options.sbp_enabled=True` is a small Phase 9.x polish — not done
+  here because it's a behaviour change, not a polish, and PHASES.md
+  explicitly said "NO new features" for Phase 9.
+- **Editable analyst-name field on the PDF cover.** Currently
+  hardcoded to "Anonymous Analyst" per ARCH §11.1. Adding a form
+  field is a UI change worth a follow-up.
+- **MANUAL_REVIEW upgrades.** 4 of 10 SBP rules currently return
+  MANUAL_REVIEW because the Phase 3 pattern catalog doesn't have
+  dedicated detectors for FLAG_SECURE, BiometricPrompt, root
+  detection, or session timeout. Phase 9.x could add patterns to
+  upgrade these to COMPLIANT/NON_COMPLIANT.
+
+**Known issues:**
+- None blocking. The deferred items above are scope choices, not
+  bugs.
+
+**Mid-execution decisions:**
+- D-24: Phase 9 explicitly does NOT add new features even where
+  prior phases left polish hooks. Items listed under "Pending /
+  deferred" above are tracked here and documented in the README
+  troubleshooting / setup sections so a reviewer can find them.
+- D-25: Performance benchmark prints actual elapsed seconds on
+  assertion failure (the assertion message is `f"... took {elapsed:.2f}s,
+  exceeding the {MAX_SECONDS}s budget"`). A flaky-machine fail is
+  immediately actionable.
+
+**Files touched:** 3 added (tests + tests + tests), 3 modified
+(README, dashboard.html, main.css).
+
+**Next session picks up at:** v1.0.0 tag + viva rehearsal. The
+project is feature-complete.
 
 ---
 
@@ -1093,6 +1201,34 @@ common case (Nayab toggles educational mode for demos, not for every
 analysis). The flag is persisted on the analyses row, so the include
 decision is deterministic.
 **Reversible?** Trivially.
+
+### D-24: Phase 9 holds the "no new features" line strictly
+**Made in:** Phase 9
+**Date:** 2026-05-14
+**Decision:** Phase 9 polish does NOT touch the SBP auto-trigger,
+analyst-name field, or the four MANUAL_REVIEW SBP rules — even though
+all three were called out as Phase 9 polish candidates in earlier
+SCRATCHPAD entries. Documented as "Pending / deferred" with the
+reasoning instead.
+**Reasoning:** PHASES.md sec Phase 9 is explicit: "NO new features.
+Anything that should have been done in Phases 1-8 belongs in those
+branches, not here." Adding the auto-trigger is a behaviour change; the
+analyst field is a new UI input; the SBP rules need new patterns. Each
+deserves its own focused PR if it lands. Slipping them into the
+final-polish PR would muddy the chapter-claim mapping and the viva
+walkthrough.
+**Reversible?** Trivial — open follow-up PRs once Phase 9 merges.
+
+### D-25: Performance benchmark prints actual timing on failure
+**Made in:** Phase 9
+**Date:** 2026-05-14
+**Decision:** `tests/test_performance.py` formats the assertion message
+as `f"... took {elapsed:.2f}s, exceeding the {MAX_SECONDS}s budget"`
+and also prints the same timing on success.
+**Reasoning:** A slow-CI failure that says only "AssertionError" wastes
+debugging time. With actual seconds in the message, the failure tells
+you whether you're 5% over (machine load) or 5x over (regression).
+**Reversible?** Trivial.
 
 ### D-23: Educational PDF content rendered inline, not appendix
 **Made in:** Phase 8

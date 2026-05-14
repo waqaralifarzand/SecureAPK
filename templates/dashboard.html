@@ -37,7 +37,11 @@
     </tbody>
   </table>
   {% else %}
-    <p class="muted">No analyses yet. <a href="{{ url_for('index') }}">Upload an APK</a> to get started.</p>
+    <div class="empty-state">
+      <h2>No analyses yet</h2>
+      <p class="muted">Upload your first APK to begin a security analysis.</p>
+      <a class="btn btn-primary" href="{{ url_for('index') }}">Upload an APK</a>
+    </div>
   {% endif %}
 </section>
 {% endblock %}
