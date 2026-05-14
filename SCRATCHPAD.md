@@ -526,7 +526,7 @@ phase, top-5 issues list, OWASP MTW10 table with names, CWE pill list.
 ### Phase 6 — PDF Reports + Forensic Hashing
 
 **Branch:** `phase-6-reports-forensic`
-**PR:** _(opened as draft, URL filled in after the PR is created)_
+**PR:** [#6](https://github.com/waqaralifarzand/SecureAPK/pull/6) (draft)
 **Completed:** 2026-05-14
 **Test count after this phase:** 33 / 34
 
