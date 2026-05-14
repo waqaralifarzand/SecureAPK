@@ -373,6 +373,39 @@ def set_parser_used(analysis_id: str, parser_used: str) -> None:
     add_audit_entry(analysis_id, "manifest_parser", details=parser_used)
 
 
+# ---------- runtime events (Phase 4) ----------
+
+def save_runtime_events(analysis_id: str, events: Iterable[dict[str, Any]]) -> None:
+    with _connect() as conn:
+        for e in events:
+            conn.execute(
+                """
+                INSERT INTO runtime_events
+                    (analysis_id, event_category, event_subtype, log_line,
+                     timestamp_in_session, severity)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    analysis_id,
+                    e.get("category") or e.get("event_category"),
+                    e.get("subtype") or e.get("event_subtype"),
+                    e.get("log_line"),
+                    e.get("timestamp_in_session"),
+                    e.get("severity"),
+                ),
+            )
+
+
+def get_runtime_events(analysis_id: str) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM runtime_events WHERE analysis_id = ? "
+            "ORDER BY timestamp_in_session, id",
+            (analysis_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 # ---------- audit log ----------
 
 def add_audit_entry(analysis_id: str, action: str, actor: str = "system", details: str | None = None) -> None:

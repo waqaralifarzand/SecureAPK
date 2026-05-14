@@ -132,10 +132,59 @@
 </section>
 
 <section class="tab-panel" data-tab-panel="dynamic">
+  {% if not analysis.dynamic_enabled %}
   <div class="panel">
     <h2>Dynamic Analysis</h2>
-    <p class="muted">{% if analysis.dynamic_enabled %}Not yet implemented (Phase 4).{% else %}Dynamic analysis was not enabled for this scan.{% endif %}</p>
+    <p class="muted">Dynamic analysis was not enabled for this scan.</p>
   </div>
+  {% else %}
+  {% set banner_class = 'banner-ok' if dynamic_status == 'completed'
+                  else 'banner-warn' if dynamic_status == 'partial'
+                  else 'banner-skip' %}
+  <div class="panel">
+    <h2>Dynamic Analysis</h2>
+    <div class="status-banner {{ banner_class }}">
+      <strong>Status:</strong> <span class="mono">{{ dynamic_status or 'pending' }}</span>
+    </div>
+    <dl class="meta-grid">
+      <dt>Runtime events</dt><dd>{{ runtime_events|length }}</dd>
+      <dt>Findings</dt><dd>{{ dynamic_findings|length }}</dd>
+    </dl>
+    {% if dynamic_status and dynamic_status.startswith('skipped') %}
+    <p class="muted">No emulator was reachable (or install failed). Start an Android
+    emulator via <em>Android Studio &rarr; Device Manager</em> and re-upload the
+    APK with Dynamic Analysis enabled.</p>
+    {% endif %}
+  </div>
+
+  {% if runtime_events %}
+  <div class="panel">
+    <h3>Runtime Events ({{ runtime_events|length }})</h3>
+    <table class="data-table">
+      <thead><tr><th>t (s)</th><th>Severity</th><th>Category</th><th>Log line</th></tr></thead>
+      <tbody>
+        {% for ev in runtime_events %}
+        <tr>
+          <td>{{ ev.timestamp_in_session if ev.timestamp_in_session is not none else '&mdash;' }}</td>
+          <td><span class="severity-badge severity-badge-{{ ev.severity|lower }}">{{ ev.severity }}</span></td>
+          <td>{{ ev.event_category }}</td>
+          <td class="mono">{{ ev.log_line or '&mdash;' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if dynamic_findings %}
+  <div class="panel">
+    <h3>Dynamic Findings ({{ dynamic_findings|length }})</h3>
+    {% for finding in dynamic_findings %}
+      {% include '_partials/finding_card.html' %}
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% endif %}
 </section>
 
 <section class="tab-panel" data-tab-panel="risk">

@@ -114,3 +114,14 @@
   overflow-x: auto;
   font-size: 12px;
 }
+
+.status-banner {
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  margin: 8px 0 14px;
+  border: 1px solid var(--border);
+  font-size: 14px;
+}
+.status-banner.banner-ok   { background: rgba(82, 196, 26, .12); border-color: var(--sev-low);    color: var(--sev-low); }
+.status-banner.banner-warn { background: rgba(250, 173, 20, .12); border-color: var(--sev-medium); color: var(--sev-medium); }
+.status-banner.banner-skip { background: rgba(255, 77, 79, .10);  border-color: var(--sev-high);   color: var(--sev-high); }

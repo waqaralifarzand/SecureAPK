@@ -14,15 +14,15 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 |---|---|---|---|---|
 | 1 — Foundation | ✅ Merged | 2026-05-14 | 2026-05-14 | [#1](https://github.com/waqaralifarzand/SecureAPK/pull/1) |
 | 2 — Manifest Analyzer | ✅ Merged | 2026-05-14 | 2026-05-14 | [#2](https://github.com/waqaralifarzand/SecureAPK/pull/2) |
-| 3 — Source Code Analyzer | 🔄 PR open | 2026-05-14 | 2026-05-14 | _(see entry below)_ |
-| 4 — Dynamic Analyzer | ⬜ Not started | — | — | — |
+| 3 — Source Code Analyzer | ✅ Merged | 2026-05-14 | 2026-05-14 | [#3](https://github.com/waqaralifarzand/SecureAPK/pull/3) |
+| 4 — Dynamic Analyzer | 🔄 PR open | 2026-05-14 | 2026-05-14 | _(see entry below)_ |
 | 5 — Risk Engine + OWASP/CWE | ⬜ Not started | — | — | — |
 | 6 — PDF Reports + Forensic | ⬜ Not started | — | — | — |
 | 7 — SBP Banking Compliance | ⬜ Not started | — | — | — |
 | 8 — Educational Mode | ⬜ Not started | — | — | — |
 | 9 — Testing & Polish | ⬜ Not started | — | — | — |
 
-**Running test count:** 17 / 34 target
+**Running test count:** 22 / 34 target
 
 ---
 
@@ -30,7 +30,7 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 
 - **Repo:** https://github.com/waqaralifarzand/SecureAPK
 - **Default branch:** `main`
-- **Active branch:** `phase-3-source-analyzer` (Phase 3)
+- **Active branch:** `phase-4-dynamic-analyzer` (Phase 4)
 - **Local dev URL:** http://127.0.0.1:5000 _(when `python app.py` is running)_
 
 ---
@@ -354,7 +354,93 @@ collapses gracefully under the `dex_strings` fallback.
 
 ### Phase 4 — Dynamic Analyzer
 
-_Not yet started._
+**Branch:** `phase-4-dynamic-analyzer`
+**PR:** _(opened as draft, URL filled in after the PR is created)_
+**Completed:** 2026-05-14
+**Test count after this phase:** 22 / 34
+
+**What was built (rebuild from scratch — old `dynamic_analysis.py` was deleted in Phase 1):**
+A clean ADB-driven dynamic analyzer (`modules/dynamic_analyzer.py`) that
+follows ARCHITECTURE.md §10's full pipeline — `adb devices` → `adb install
+-r -t` → `adb shell monkey LAUNCHER 1` → 3-second settle → time-bounded
+`adb logcat -v time` capture → optional `dumpsys package` snapshot →
+**`adb uninstall` ALWAYS in `finally`**. Every subprocess call has a
+timeout; logcat uses `Popen` with a Unix process-group so the child tree
+dies together; the whole pipeline runs under a module-level
+`threading.Lock` so concurrent uploads can't both grab the emulator
+(ARCHITECTURE.md §8). Catalog of **exactly 10 runtime event categories** in
+`modules/patterns/runtime_events.py`, count + uniqueness asserted at
+import time. Logcat parser deduplicates identical (category, line[:120])
+hits with a `count` field — the literature review's "50 identical HTTP
+requests collapse to one event" requirement. Orchestrator gates Phase 4
+behind `options.dynamic_enabled`; result page Dynamic tab gets a colour-
+coded status banner (green/amber/red) that maps `completed` / `partial` /
+`skipped_*` to the CLAUDE.md §5 severity tokens.
+
+**Verified working:**
+- `python -m pytest tests/ -v` → **22 passed** (3 db + 6 manifest + 8 source + 5 dynamic)
+- 10 runtime categories — `assert len(RUNTIME_EVENT_CATEGORIES) == 10` at
+  import time; ID uniqueness + severity validity also asserted
+- End-to-end no-emulator smoke test through the orchestrator (the most
+  common path on a developer laptop):
+  - `dynamic_status="skipped_no_emulator"` recorded in `audit_log`
+  - `phase_4_completed` logged with `events=0, findings=0, logcat_seconds=0`
+  - **Zero exceptions, zero crashes** — orchestrator continued cleanly to
+    Phases 5/6 placeholders
+  - Result page Dynamic tab rendered the red `banner-skip` banner with the
+    "open Android Studio → Device Manager" actionable hint
+- Mocked-end-to-end ADB test: install + monkey + logcat (canned output)
+  + uninstall all called in order; `adb uninstall <pkg>` confirmed to fire
+  in `finally` even after partial failure paths (test 3)
+- Logcat classifier correctness: `CleartextTraffic` → `CLEARTEXT_HTTP`
+  HIGH; `password=hunter2` → `CREDENTIAL_LOG_EXPOSURE` HIGH;
+  `SSLHandshakeException` → `SSL_VALIDATION_EXCEPTION` HIGH
+
+**ADB subprocess approach (this is what broke the original code):**
+- `subprocess.run(..., timeout=N, capture_output=True, text=True)` for every
+  one-shot ADB call (devices, install, monkey, dumpsys, uninstall)
+- `subprocess.Popen(..., preexec_fn=os.setsid)` for logcat, terminated via
+  `os.killpg(os.getpgid(pid), SIGTERM)` after `DYNAMIC_LOGCAT_DURATION_SECONDS`
+- Windows fallback: `proc.terminate()` instead of `killpg`
+- All exceptions caught at the outermost layer; `analyze()` is contract-
+  bound to never raise into the orchestrator
+
+**Pending / deferred:**
+- Real-emulator validation. We do not have an Android emulator in this
+  environment. Nayab should run `python app.py`, start an AVD via Android
+  Studio, then upload an APK with Dynamic enabled to confirm the
+  `completed` path in addition to the no-emulator path the smoke test
+  already covers.
+- The `_capture_logcat` helper currently sleeps `duration` seconds in the
+  parent and drains stdout via `communicate()` afterwards. For the 30s
+  default this is fine; if Phase 9 wants live progress streaming we can
+  read stdout in a background thread. Not worth doing pre-Phase-5.
+
+**Known issues:**
+- Logcat capture wall time is best-effort. The `logcat_duration_seconds`
+  value reported on the result is `int(monotonic delta)` which can be off
+  by up to ~1s for a configured 30s window. Acceptable.
+- `dumpsys package` failures are intentionally swallowed — it's a
+  best-effort permission snapshot, not a blocker.
+
+**Mid-execution decisions:**
+- D-7: ADB pipeline returns a *dict* `DynamicAnalysisResult`, not a
+  dataclass. Keeps the contract identical to Phases 2 / 3 (manifest /
+  source) and lets `db_manager.save_runtime_events` consume the same
+  shape that the in-memory pipeline produced.
+- D-8: Logcat events that match multiple regex categories are tagged with
+  the *first* matching category (in the catalog order from
+  ARCHITECTURE.md §11). Prevents double-counting when, e.g., a SSL crash
+  line could match both SSL_VALIDATION_EXCEPTION and SECURITY_EXCEPTION_CRASH.
+- D-9: Phase 4 stores both `runtime_events` rows AND a `findings` row per
+  *unique* category (not per event). Ten distinct categories → at most
+  ten Phase 4 finding rows, regardless of how many logcat lines hit each.
+  Keeps the result page navigable; the full event table is preserved in
+  `runtime_events` for forensic detail.
+
+**Files touched:** 3 added, 5 modified.
+
+**Next session picks up at:** Phase 5 — Risk Engine + OWASP/CWE Mapping.
 
 ### Phase 5 — Risk Engine + OWASP/CWE Mapping
 
@@ -465,6 +551,45 @@ decompile — common on real-world APKs that the literature review flags
 still usable. Trusting the filesystem over the return code matches what
 MobSF and the academic Jadx-wrapper tools do.
 **Reversible?** Easy — re-add an `if proc.returncode != 0: raise` check.
+
+### D-7: DynamicAnalysisResult is a plain dict, not a dataclass
+**Made in:** Phase 4
+**Date:** 2026-05-14
+**Decision:** `dynamic_analyzer.analyze()` returns a `dict[str, Any]`
+matching the ARCHITECTURE.md §6 shape, not a typed dataclass.
+**Reasoning:** Phase 2 (manifest) and Phase 3 (source) already return
+dicts; uniformity matters for `db_manager.save_*` helpers and for the
+orchestrator's audit-log details. No external consumer needs strong
+typing here. If Phase 9 wants type safety we can add a `TypedDict`
+without changing any caller.
+**Reversible?** Easy — wrap the return in a TypedDict / dataclass.
+
+### D-8: Logcat first-match wins — categories are not multi-tagged
+**Made in:** Phase 4
+**Date:** 2026-05-14
+**Decision:** When a logcat line matches multiple category regexes, only
+the *first* category in the catalog order from ARCHITECTURE.md §11 is
+emitted as an event.
+**Reasoning:** Avoids double-counting (an `SSLException` line could match
+both SSL_VALIDATION_EXCEPTION and SECURITY_SENSITIVE_CRASH); makes the
+events list deterministic; matches what MobSF's logcat post-processor
+does. The catalog order in ARCHITECTURE.md §11 was chosen specifically
+so the more specific category comes first.
+**Reversible?** Easy — drop the `break` in `_classify_logcat`.
+
+### D-9: One finding per *unique category*, not per event
+**Made in:** Phase 4
+**Date:** 2026-05-14
+**Decision:** `runtime_events` rows preserve the full per-line detail
+(with a `count` field collapsing identical lines), but `findings` rows
+get one entry per unique `category_id` only.
+**Reasoning:** Without this, a chatty cleartext API client could produce
+hundreds of HIGH finding cards on the result page. The runtime_events
+table still contains the forensic detail; the findings list stays
+navigable. Phase 5's risk engine will weight by severity × category — it
+doesn't care about per-line counts.
+**Reversible?** Easy — change `_events_to_findings` to emit one finding
+per event.
 
 ### D-6: Source snippets capture ±1 lines of context, stripped
 **Made in:** Phase 3

@@ -8,7 +8,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, asdict
 
-from modules import db_manager, forensic, manifest_analyzer, source_analyzer
+from modules import (
+    db_manager, dynamic_analyzer, forensic, manifest_analyzer, source_analyzer,
+)
 
 
 log = logging.getLogger(__name__)
@@ -78,10 +80,25 @@ def run_analysis(analysis_id: str, apk_path: str, options: AnalysisOptions) -> N
         )
         db_manager.set_progress(analysis_id, 50)
 
-        # Placeholder for Phase 4 (Dynamic, optional).
+        # Phase 4 — Dynamic runtime analysis (optional).
         if options.dynamic_enabled:
             db_manager.set_current_phase(analysis_id, 4)
-            log.info("Phase 4 (dynamic) not implemented yet for analysis %s", analysis_id)
+            dynamic = dynamic_analyzer.analyze(apk_path, manifest.get("package_name"))
+            db_manager.save_runtime_events(analysis_id, dynamic["events"])
+            db_manager.save_findings(analysis_id, dynamic["findings"])
+            db_manager.add_audit_entry(
+                analysis_id, "dynamic_status", details=dynamic["status"],
+            )
+            forensic.audit(
+                "phase_4_completed",
+                analysis_id,
+                details={
+                    "status": dynamic["status"],
+                    "events": len(dynamic["events"]),
+                    "findings": len(dynamic["findings"]),
+                    "logcat_seconds": dynamic["logcat_duration_seconds"],
+                },
+            )
         db_manager.set_progress(analysis_id, 70)
 
         # Placeholder for Phase 7 (SBP, optional).

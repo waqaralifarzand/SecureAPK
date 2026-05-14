@@ -92,8 +92,14 @@ def view_analysis(analysis_id: str):
     )
     manifest_findings = [f for f in findings if f["phase"] == 2]
     source_findings = [f for f in findings if f["phase"] == 3]
+    dynamic_findings = [f for f in findings if f["phase"] == 4]
+    runtime_events = db_manager.get_runtime_events(analysis_id)
     decompiler_used = next(
         (e["details"] for e in audit_entries if e["action"] == "source_decompiler"),
+        None,
+    )
+    dynamic_status = next(
+        (e["details"] for e in audit_entries if e["action"] == "dynamic_status"),
         None,
     )
     # Group source findings by category for the Source Code tab.
@@ -109,6 +115,9 @@ def view_analysis(analysis_id: str):
         source_findings=source_findings,
         source_by_category=source_by_category,
         decompiler_used=decompiler_used,
+        dynamic_findings=dynamic_findings,
+        runtime_events=runtime_events,
+        dynamic_status=dynamic_status,
         permissions=permissions,
         exported_components=exported_components,
         parser_used=parser_used,
