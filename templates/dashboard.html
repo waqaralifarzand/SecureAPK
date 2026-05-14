@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Dashboard &mdash; SecureAPK{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+{% endblock %}
+{% block content %}
+<section>
+  <h1>Analysis history</h1>
+  {% if analyses %}
+  <table class="dashboard-table">
+    <thead>
+      <tr>
+        <th>Started</th>
+        <th>APK</th>
+        <th>Hash</th>
+        <th>Status</th>
+        <th>Classification</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in analyses %}
+      <tr>
+        <td>{{ a.started_at }}</td>
+        <td>{{ a.apk_filename }}</td>
+        <td class="mono">{{ a.apk_hash_sha256[:12] }}&hellip;</td>
+        <td><span class="pill pill-{{ a.status }}">{{ a.status }}</span></td>
+        <td>{{ a.risk_classification or '&mdash;'|safe }}</td>
+        <td>
+          <a class="btn btn-sm" href="{{ url_for('view_analysis', analysis_id=a.id) }}">View</a>
+          <form method="POST" action="{{ url_for('delete_analysis', analysis_id=a.id) }}" style="display:inline">
+            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this analysis?')">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p class="muted">No analyses yet. <a href="{{ url_for('index') }}">Upload an APK</a> to get started.</p>
+  {% endif %}
+</section>
+{% endblock %}

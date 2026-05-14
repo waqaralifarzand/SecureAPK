@@ -1,87 +1,101 @@
+"""SecureAPK bootstrap script. Run once after `pip install -r requirements.txt`.
+
+Verifies Python version, initialises the SQLite database, creates working
+directories, and probes for external tools (Jadx, ADB, emulator).
+
+Missing external tools do NOT cause failure — analysis fallback chains handle
+their absence. See ARCHITECTURE.md §10 and §13.
 """
-SecureAPK Setup Script
-Run: python setup.py
-"""
+from __future__ import annotations
+
+import shutil
 import subprocess
 import sys
-import os
 
-def run(cmd, check=True):
-    print(f"  → {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if check and result.returncode != 0:
-        print(f"    ✗ Failed: {result.stderr.strip()}")
+import config
+from modules import db_manager
+
+
+def check_python() -> bool:
+    ok = sys.version_info >= (3, 11)
+    print(f"{'OK ' if ok else 'X  '} Python {sys.version_info.major}.{sys.version_info.minor} (>= 3.11 required)")
+    return ok
+
+
+def check_db() -> bool:
+    try:
+        db_manager.init_db()
+    except Exception as e:
+        print(f"X   Database init failed: {e}")
         return False
+    print(f"OK  Database initialised at {config.DATABASE_PATH}")
     return True
 
-def check_command(cmd):
-    try:
-        subprocess.run([cmd, '--version'], capture_output=True, timeout=5)
+
+def check_dirs() -> bool:
+    for p in (config.UPLOADS_PATH, config.REPORTS_PATH, config.DATABASE_PATH.parent):
+        p.mkdir(parents=True, exist_ok=True)
+    print("OK  Working directories created (uploads/, reports/, database/)")
+    return True
+
+
+def _which(name: str) -> str | None:
+    return shutil.which(name)
+
+
+def check_jadx() -> bool:
+    path = config.JADX_PATH or "jadx"
+    found = _which(path)
+    if found:
+        print(f"OK  Jadx found: {found}")
         return True
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    print("!   Jadx not in PATH. Source analysis will fall back to DEX string extraction.")
+    print("    Install: https://github.com/skylot/jadx/releases")
+    return False
+
+
+def check_adb() -> bool:
+    path = config.ADB_PATH or "adb"
+    found = _which(path)
+    if found:
+        print(f"OK  ADB found: {found}")
+        return True
+    print("!   ADB not in PATH. Dynamic analysis will be skipped if requested.")
+    print("    Install Android platform-tools from https://developer.android.com/tools/releases/platform-tools")
+    return False
+
+
+def check_emulator() -> bool:
+    adb = config.ADB_PATH or "adb"
+    if not _which(adb):
+        print("!   Emulator check skipped (adb missing).")
         return False
+    try:
+        out = subprocess.run([adb, "devices"], capture_output=True, text=True, timeout=5)
+    except (subprocess.TimeoutExpired, OSError):
+        print("!   `adb devices` failed or timed out.")
+        return False
+    for line in out.stdout.splitlines()[1:]:
+        if line.strip().endswith("device"):
+            print(f"OK  Emulator running: {line.split()[0]}")
+            return True
+    print("!   No emulator running. Start one via Android Studio for dynamic analysis.")
+    return False
 
-print("=" * 60)
-print("  SecureAPK — Setup Script")
-print("  Lahore Garrison University FYP")
-print("=" * 60)
-print()
 
-# 1. Create directories
-print("[1/4] Creating project directories...")
-for d in ['database', 'reports', os.path.join('static', 'uploads')]:
-    os.makedirs(d, exist_ok=True)
-    print(f"  ✓ {d}/")
+def main() -> int:
+    print(f"--- {config.TOOL_NAME} {config.TOOL_VERSION} setup ---")
+    if not check_python():
+        return 1
+    check_dirs()
+    if not check_db():
+        return 1
+    check_jadx()
+    check_adb()
+    check_emulator()
+    print("--- setup complete ---")
+    return 0
 
-# 2. Install Python packages
-print("\n[2/4] Installing Python dependencies...")
-packages = ['flask', 'werkzeug', 'pyaxmlparser', 'reportlab']
-for pkg in packages:
-    print(f"  Installing {pkg}...")
-    ok = run([sys.executable, '-m', 'pip', 'install', '--quiet', '--upgrade', pkg], check=False)
-    if ok:
-        print(f"  ✓ {pkg}")
-    else:
-        print(f"  ✗ {pkg} — try: pip install {pkg}")
 
-# 3. Check optional tools
-print("\n[3/4] Checking optional tools...")
-
-jadx_ok = check_command('jadx')
-print(f"  {'✓' if jadx_ok else '✗'} jadx {'(found)' if jadx_ok else '(NOT FOUND — download from https://github.com/skylot/jadx/releases)'}")
-
-aapt_ok = check_command('aapt')
-print(f"  {'✓' if aapt_ok else '○'} aapt {'(found)' if aapt_ok else '(optional — part of Android SDK build-tools)'}")
-
-adb_ok = check_command('adb')
-print(f"  {'✓' if adb_ok else '○'} adb {'(found)' if adb_ok else '(optional — required for dynamic analysis)'}")
-
-# 4. Initialize database
-print("\n[4/4] Initializing database...")
-try:
-    sys.path.insert(0, os.path.dirname(__file__))
-    from modules.db_manager import init_db
-    init_db()
-    print("  ✓ SQLite database initialized at database/secureapk.db")
-except Exception as e:
-    print(f"  ✗ DB init failed: {e}")
-
-# Summary
-print()
-print("=" * 60)
-print("  Setup Complete!")
-print()
-print("  To start SecureAPK:")
-print("    python app.py")
-print()
-print("  Then open: http://localhost:5000")
-print()
-if not jadx_ok:
-    print("  ⚠ Install Jadx for full source code analysis:")
-    print("    https://github.com/skylot/jadx/releases")
-    print()
-if not adb_ok:
-    print("  ⚠ Install Android Studio for dynamic analysis:")
-    print("    https://developer.android.com/studio")
-    print()
-print("=" * 60)
+if __name__ == "__main__":
+    sys.exit(main())

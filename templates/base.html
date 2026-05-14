@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}SecureAPK{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+{% block head_extra %}{% endblock %}
+</head>
+<body>
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="brand" href="{{ url_for('index') }}">SecureAPK</a>
+    <nav class="site-nav">
+      <a href="{{ url_for('index') }}">Home</a>
+      <a href="{{ url_for('dashboard') }}">Dashboard</a>
+      <a href="{{ url_for('health') }}">Health</a>
+    </nav>
+  </div>
+</header>
+<main class="container">
+  {% block content %}{% endblock %}
+</main>
+<footer class="site-footer">
+  <div class="container">
+    <span>SecureAPK 1.0.0 &mdash; Local analysis only.</span>
+  </div>
+</footer>
+{% block scripts %}{% endblock %}
+</body>
+</html>
