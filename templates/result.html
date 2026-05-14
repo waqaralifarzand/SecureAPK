@@ -106,8 +106,29 @@
 <section class="tab-panel" data-tab-panel="source">
   <div class="panel">
     <h2>Source Code Analysis</h2>
-    <p class="muted">Not yet implemented (Phase 3).</p>
+    <dl class="meta-grid">
+      <dt>Decompiler</dt><dd class="mono">{{ decompiler_used or '&mdash;' }}</dd>
+      <dt>Findings</dt><dd>{{ source_findings|length }}</dd>
+      <dt>Categories</dt><dd>{{ source_by_category|length }} / 9</dd>
+    </dl>
+    {% if decompiler_used == 'dex_strings' %}
+    <p class="muted">Jadx was not available — falling back to DEX string extraction.
+    File and line numbers will be absent and coverage is reduced.</p>
+    {% endif %}
   </div>
+
+  {% if source_by_category %}
+    {% for category, items in source_by_category.items() %}
+    <div class="panel">
+      <h3>{{ category }} <span class="muted">({{ items|length }})</span></h3>
+      {% for finding in items %}
+        {% include '_partials/finding_card.html' %}
+      {% endfor %}
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="panel"><p class="muted">No source code findings.</p></div>
+  {% endif %}
 </section>
 
 <section class="tab-panel" data-tab-panel="dynamic">

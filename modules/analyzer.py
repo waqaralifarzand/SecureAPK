@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, asdict
 
-from modules import db_manager, forensic, manifest_analyzer
+from modules import db_manager, forensic, manifest_analyzer, source_analyzer
 
 
 log = logging.getLogger(__name__)
@@ -59,9 +59,23 @@ def run_analysis(analysis_id: str, apk_path: str, options: AnalysisOptions) -> N
         )
         db_manager.set_progress(analysis_id, 25)
 
-        # Placeholder for Phase 3 (Source).
+        # Phase 3 — Source code static analysis.
         db_manager.set_current_phase(analysis_id, 3)
-        log.info("Phase 3 (source) not implemented yet for analysis %s", analysis_id)
+        source = source_analyzer.analyze(apk_path)
+        db_manager.save_findings(analysis_id, source["findings"])
+        db_manager.add_audit_entry(
+            analysis_id, "source_decompiler", details=source["decompiler_used"],
+        )
+        forensic.audit(
+            "phase_3_completed",
+            analysis_id,
+            details={
+                "findings": len(source["findings"]),
+                "decompiler_used": source["decompiler_used"],
+                "files_scanned": source["files_scanned"],
+                "categories": source["categories_triggered"],
+            },
+        )
         db_manager.set_progress(analysis_id, 50)
 
         # Placeholder for Phase 4 (Dynamic, optional).

@@ -13,8 +13,8 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 | Phase | Status | Started | Completed | PR |
 |---|---|---|---|---|
 | 1 — Foundation | ✅ Merged | 2026-05-14 | 2026-05-14 | [#1](https://github.com/waqaralifarzand/SecureAPK/pull/1) |
-| 2 — Manifest Analyzer | 🔄 PR open | 2026-05-14 | 2026-05-14 | _(see entry below)_ |
-| 3 — Source Code Analyzer | ⬜ Not started | — | — | — |
+| 2 — Manifest Analyzer | ✅ Merged | 2026-05-14 | 2026-05-14 | [#2](https://github.com/waqaralifarzand/SecureAPK/pull/2) |
+| 3 — Source Code Analyzer | 🔄 PR open | 2026-05-14 | 2026-05-14 | _(see entry below)_ |
 | 4 — Dynamic Analyzer | ⬜ Not started | — | — | — |
 | 5 — Risk Engine + OWASP/CWE | ⬜ Not started | — | — | — |
 | 6 — PDF Reports + Forensic | ⬜ Not started | — | — | — |
@@ -22,7 +22,7 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 | 8 — Educational Mode | ⬜ Not started | — | — | — |
 | 9 — Testing & Polish | ⬜ Not started | — | — | — |
 
-**Running test count:** 9 / 34 target
+**Running test count:** 17 / 34 target
 
 ---
 
@@ -30,7 +30,7 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 
 - **Repo:** https://github.com/waqaralifarzand/SecureAPK
 - **Default branch:** `main`
-- **Active branch:** `claude/manifest-analyzer-tGGTJ` (Phase 2)
+- **Active branch:** `phase-3-source-analyzer` (Phase 3)
 - **Local dev URL:** http://127.0.0.1:5000 _(when `python app.py` is running)_
 
 ---
@@ -269,7 +269,88 @@ without educational expansion (deferred to Phase 8 per spec).
 
 ### Phase 3 — Source Code Analyzer
 
-_Not yet started._
+**Branch:** `phase-3-source-analyzer`
+**PR:** _(opened as draft, URL filled in after the PR is created)_
+**Completed:** 2026-05-14
+**Test count after this phase:** 17 / 34
+
+**What was built:**
+Static source-code analyzer (`modules/source_analyzer.py`) implementing
+ARCHITECTURE.md §10's two-step fallback chain — `jadx --no-res --output-dir`
++ per-line regex scan, with a printable-strings sweep of `classes*.dex` as
+the safety net when Jadx is absent. Catalog of **34 patterns across exactly
+9 categories** lives in `modules/patterns/vuln_patterns.py`; every entry
+carries the complete Phase 8 `remediation` dict (vulnerable / fixed /
+explanation). Per-(pattern_id, file) deduplication prevents the result page
+from flooding when one rule hits on every class. `owasp_cwe_map.py`
+extended with the 9 source-code categories. Orchestrator wires Phase 3 in
+between Phase 2 and the (still-placeholder) Phase 4. Result page Source
+Code tab groups findings by category with file/line info when Jadx ran and
+collapses gracefully under the `dex_strings` fallback.
+
+**Verified working:**
+- `python -m pytest tests/ -v` → **17 passed** (3 db + 6 manifest + 8 source)
+- 34 patterns / 9 categories — `assert len(VULN_PATTERNS) >= 30` and
+  `assert {p.category for p} == set(CATEGORIES)` both run at import time
+- Synthetic-APK orchestrator smoke test:
+  - Phase 2 findings: 3, Phase 3 findings: 2 (Hardcoded Secrets +
+    Weak Cryptography), `decompiler_used = "dex_strings"` (no Jadx locally)
+  - Audit log records `source_decompiler=dex_strings` and
+    `phase_3_completed` with the categories list
+  - Result page Source Code tab renders 5 finding cards correctly grouped
+    by category (verified via Flask test client)
+- Jadx-on-PATH path tested end-to-end via stubbed `subprocess.run`: file
+  paths and line numbers come through correctly, dedup is enforced
+- DEX-strings fallback test detects HARDCODED_GOOGLE_API_KEY and
+  WEAK_HASH_MD5 from a synthesised classes.dex with no Jadx available
+
+**Pattern catalog summary:**
+- 5 × Hardcoded Secrets, 4 × Insecure Communication, 5 × Weak Cryptography,
+  4 × Insecure Data Storage, 3 × Information Leakage, 3 × WebView Security,
+  4 × Code Execution, 3 × IPC Security, 3 × SSL/TLS Validation Bypass
+  → 34 total
+
+**Smoke test parser status:**
+- Local environment has no `jadx` binary, so the smoke test exercised the
+  `dex_strings` fallback. On a host with Jadx installed, the primary path
+  activates and findings carry full file/line context.
+
+**Pending / deferred:**
+- A real DIVA / InsecureShop APK has not been dropped into
+  `tests/fixtures/sample_apks/`. The Jadx-path test uses a `_stub_jadx`
+  monkeypatch that builds the .java tree in a temp dir — exercises every
+  branch of the analyzer without depending on the external binary.
+- Risk scoring (Phase 5) still treats Phase 3 findings as bare rows; the
+  risk engine will aggregate them when it lands.
+
+**Known issues:**
+- The `HARDCODED_GENERIC_PASSWORD` regex requires the literal token
+  `password|passwd|pwd` on the LHS of the assignment. Variants like
+  `mPassword`, `userPassword` will still match because of the prefix; if
+  it produces too much noise on real APKs in Phase 9 we can tighten with
+  `\b`.
+- DEX-strings fallback intentionally strips the surrounding quote
+  characters during printable extraction. Patterns that match quoted
+  literals (e.g. `HTTP_URL_LITERAL`) detect under Jadx but not under the
+  fallback. This is expected — fallback coverage is documented as reduced.
+
+**Mid-execution decisions:**
+- D-4 (decisions log): Per-(pattern_id, file) dedup uses `break` after the
+  first hit per file rather than collecting all hits and dropping later
+  duplicates. Saves a regex sweep on long files.
+- D-5: Jadx's non-zero exit code is *ignored* if any `.java` files were
+  produced on disk. Jadx routinely exits non-zero on partial
+  decompilation but still produces usable output; treating the disk
+  artefacts as ground truth keeps the analyzer working on the messy
+  real-world APKs the literature review highlights.
+- D-6: Code snippets under the Jadx path include ±1 surrounding lines
+  (stripped of leading/trailing whitespace) to give viva audiences context
+  when reviewing a finding without ballooning the DB column. The
+  `dex_strings` fallback never has snippets — file/line are absent there.
+
+**Files touched:** 3 added, 4 modified.
+
+**Next session picks up at:** Phase 4 — Dynamic Analyzer (rebuilt from scratch).
 
 ### Phase 4 — Dynamic Analyzer
 
@@ -359,6 +440,44 @@ MobSF and the literature review's referenced rules use. Erring toward
 "exported" is also the safer default for a security tool.
 **Reversible?** Easy — single conditional in
 `manifest_analyzer._component_from_element`.
+
+### D-4: Per-(pattern_id, file) dedup is short-circuit, not post-filter
+**Made in:** Phase 3
+**Date:** 2026-05-14
+**Decision:** When scanning a `.java` file for a given pattern, stop at the
+first line that matches and skip the rest. Tracked via a
+`seen_keys: set[(pattern_id, file)]` set.
+**Reasoning:** Patterns like `printStackTrace()` or `setJavaScriptEnabled(true)`
+hit dozens of times in large decompiled outputs. A short-circuit halves the
+regex work versus collecting then filtering. The trade-off is that the
+saved `line_number` is the *first* hit only — fine for steering a developer
+to the file; richer "all hits" reporting can be added in Phase 9 if needed.
+**Reversible?** Easy — drop the `break` and post-filter the findings list.
+
+### D-5: Jadx non-zero exit codes are tolerated if .java output exists
+**Made in:** Phase 3
+**Date:** 2026-05-14
+**Decision:** `source_analyzer._analyze_with_jadx` ignores Jadx's exit code
+and only raises if **no** `.java` files were produced in the output dir.
+**Reasoning:** Jadx returns non-zero whenever any class fails to
+decompile — common on real-world APKs that the literature review flags
+(obfuscated, multi-dex, signed with newer formats). The disk artefacts are
+still usable. Trusting the filesystem over the return code matches what
+MobSF and the academic Jadx-wrapper tools do.
+**Reversible?** Easy — re-add an `if proc.returncode != 0: raise` check.
+
+### D-6: Source snippets capture ±1 lines of context, stripped
+**Made in:** Phase 3
+**Date:** 2026-05-14
+**Decision:** `code_snippet` includes the matching line plus one line above
+and below, joined with `\n` and stripped of leading/trailing whitespace.
+**Reasoning:** Single-line snippets are often inscrutable in viva
+walkthroughs (the matched line is `return true;` from a hostname
+verifier, etc.). Three lines is enough to show the surrounding scope
+without bloating the `findings.code_snippet` column. The DEX-strings
+fallback never has snippets at all — that's a documented limitation of
+the fallback, not a regression.
+**Reversible?** Easy — change the `_snippet` helper bounds.
 
 ### D-3: `parser_used` recorded in `audit_log`, not in `analyses`
 **Made in:** Phase 2

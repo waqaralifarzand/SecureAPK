@@ -33,10 +33,22 @@ CATEGORY_TO_OWASP: dict[str, str] = {
     "Debuggable Build": "M7",
     "Backup Allowed": "M9",
     "Missing Network Security Config": "M5",
+
+    # Phase 3 — source-code categories (the 9 canonical buckets)
+    "Hardcoded Secrets": "M1",
+    "Insecure Communication": "M5",
+    "Weak Cryptography": "M10",
+    "Insecure Data Storage": "M9",
+    "Information Leakage": "M9",
+    "WebView Security": "M4",
+    "Code Execution": "M4",
+    "IPC Security": "M8",
+    "SSL/TLS Validation Bypass": "M5",
 }
 
 
 CATEGORY_TO_CWE: dict[str, str] = {
+    # Phase 2
     "Dangerous Permission": "CWE-250",
     "Exported Component": "CWE-926",
     "Insecure Configuration": "CWE-16",
@@ -44,4 +56,15 @@ CATEGORY_TO_CWE: dict[str, str] = {
     "Debuggable Build": "CWE-489",
     "Backup Allowed": "CWE-530",
     "Missing Network Security Config": "CWE-319",
+
+    # Phase 3 — source-code categories
+    "Hardcoded Secrets": "CWE-798",
+    "Insecure Communication": "CWE-319",
+    "Weak Cryptography": "CWE-327",
+    "Insecure Data Storage": "CWE-922",
+    "Information Leakage": "CWE-532",
+    "WebView Security": "CWE-749",
+    "Code Execution": "CWE-94",
+    "IPC Security": "CWE-927",
+    "SSL/TLS Validation Bypass": "CWE-295",
 }

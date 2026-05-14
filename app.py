@@ -91,11 +91,24 @@ def view_analysis(analysis_id: str):
         None,
     )
     manifest_findings = [f for f in findings if f["phase"] == 2]
+    source_findings = [f for f in findings if f["phase"] == 3]
+    decompiler_used = next(
+        (e["details"] for e in audit_entries if e["action"] == "source_decompiler"),
+        None,
+    )
+    # Group source findings by category for the Source Code tab.
+    source_by_category: dict[str, list] = {}
+    for f in source_findings:
+        source_by_category.setdefault(f["category"], []).append(f)
+
     return render_template(
         "result.html",
         analysis=analysis,
         findings=findings,
         manifest_findings=manifest_findings,
+        source_findings=source_findings,
+        source_by_category=source_by_category,
+        decompiler_used=decompiler_used,
         permissions=permissions,
         exported_components=exported_components,
         parser_used=parser_used,
