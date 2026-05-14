@@ -13,7 +13,7 @@ from flask import (
 from werkzeug.utils import secure_filename
 
 import config
-from modules import analyzer, db_manager, forensic, risk_engine
+from modules import analyzer, db_manager, educational, forensic, risk_engine
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -196,8 +196,14 @@ def api_status(analysis_id: str):
 
 @app.route("/api/finding/<finding_id>/educational")
 def api_finding_educational(finding_id: str):
-    # Placeholder — wired up in Phase 8.
-    return jsonify({"error": "educational mode not yet implemented"}), 404
+    remediation = educational.get_remediation_for_finding(finding_id)
+    if remediation is None:
+        return jsonify({"error": "No educational content for this finding"}), 404
+    return jsonify({
+        "vulnerable_snippet": remediation["vulnerable_snippet"],
+        "fixed_snippet":      remediation["fixed_snippet"],
+        "explanation":        remediation["explanation"],
+    })
 
 
 @app.route("/health")

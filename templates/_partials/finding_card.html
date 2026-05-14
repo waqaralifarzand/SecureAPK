@@ -1,5 +1,7 @@
-{# Reusable finding card. Phase 2 implementation — no educational expansion
-   button (that's Phase 8). Expected variable: `finding` (dict per ARCHITECTURE.md §6). #}
+{# Reusable finding card. Educational expansion button (Phase 8) only
+   renders when analysis.educational_enabled AND the finding has a
+   pattern_id pointing to a VULN_PATTERNS entry. The JS handler keeps
+   the actual content lazy-loaded via XHR. #}
 <article class="finding-card severity-{{ finding.severity|lower }}">
   <header class="finding-head">
     <span class="severity-badge severity-badge-{{ finding.severity|lower }}">{{ finding.severity }}</span>
@@ -14,5 +16,13 @@
   <p class="finding-desc">{{ finding.description }}</p>
   {% if finding.code_snippet %}
   <pre class="finding-snippet mono">{{ finding.code_snippet }}</pre>
+  {% endif %}
+  {% if analysis.educational_enabled and finding.pattern_id and finding.phase == 3 %}
+  <button class="educational-toggle" type="button"
+          data-finding-id="{{ finding.id }}"
+          aria-expanded="false">
+    &#9662; Show Educational Detail
+  </button>
+  <div class="educational-content" hidden></div>
   {% endif %}
 </article>

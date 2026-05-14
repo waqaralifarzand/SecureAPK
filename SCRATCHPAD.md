@@ -18,11 +18,11 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 | 4 — Dynamic Analyzer | ✅ Merged | 2026-05-14 | 2026-05-14 | [#4](https://github.com/waqaralifarzand/SecureAPK/pull/4) |
 | 5 — Risk Engine + OWASP/CWE | ✅ Merged | 2026-05-14 | 2026-05-14 | [#5](https://github.com/waqaralifarzand/SecureAPK/pull/5) |
 | 6 — PDF Reports + Forensic | ✅ Merged | 2026-05-14 | 2026-05-14 | [#6](https://github.com/waqaralifarzand/SecureAPK/pull/6) |
-| 7 — SBP Banking Compliance | 🔄 PR open | 2026-05-14 | 2026-05-14 | _(see entry below)_ |
-| 8 — Educational Mode | ⬜ Not started | — | — | — |
+| 7 — SBP Banking Compliance | ✅ Merged | 2026-05-14 | 2026-05-14 | [#7](https://github.com/waqaralifarzand/SecureAPK/pull/7) |
+| 8 — Educational Mode | 🔄 PR open | 2026-05-14 | 2026-05-14 | _(see entry below)_ |
 | 9 — Testing & Polish | ⬜ Not started | — | — | — |
 
-**Running test count:** 37 / 34 target (target hit + 3 over)
+**Running test count:** 39 / 34 target
 
 ---
 
@@ -30,7 +30,7 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 
 - **Repo:** https://github.com/waqaralifarzand/SecureAPK
 - **Default branch:** `main`
-- **Active branch:** `phase-7-sbp-compliance` (Phase 7)
+- **Active branch:** `phase-8-educational-mode` (Phase 8)
 - **Local dev URL:** http://127.0.0.1:5000 _(when `python app.py` is running)_
 
 ---
@@ -741,7 +741,111 @@ understand the join.
 
 ### Phase 8 — Educational Mode
 
-_Not yet started._
+**Branch:** `phase-8-educational-mode`
+**PR:** _(opened as draft, URL filled in after the PR is created)_
+**Completed:** 2026-05-14
+**Test count after this phase:** 39 / 34
+
+**What was built - the third MobSF differentiator ships:**
+Educational Mode turns each Phase-3 source-code finding into an
+expandable card showing (1) the vulnerable code snippet, (2) the fixed
+version, (3) a plain-English "why this matters". Heavy lifting was
+already done in Phase 3 — every entry in `vuln_patterns.py` shipped with
+a complete `remediation` dict. Phase 8 is the lookup + UI + PDF
+integration on top:
+
+- `modules/educational.py` — thin lookup: `get_remediation_for_finding(
+  finding_id)` reads the finding via `db_manager.get_finding(id)`, joins
+  to `_REMEDIATION_BY_PATTERN_ID` (built once at import time from
+  `VULN_PATTERNS`), returns the dict or `None`. Also exposes
+  `get_remediation_for_pattern(pattern_id)` for the PDF generator which
+  iterates findings without going through the DB id route.
+- `GET /api/finding/<id>/educational` — Flask route returns JSON
+  `{vulnerable_snippet, fixed_snippet, explanation}` or 404 with
+  `{"error": ...}` when the finding has no pattern_id, doesn't exist,
+  or carries a pattern_id absent from the catalog.
+- `_partials/finding_card.html` — conditional expand button: renders
+  only when `analysis.educational_enabled AND finding.pattern_id AND
+  finding.phase == 3`. Manifest (Phase 2), dynamic (Phase 4), and SBP
+  (Phase 7) finding cards stay clean even with the mode on.
+- `static/js/result.js` — vanilla-JS click handler (no framework). On
+  expand: XHR + render three colour-coded sections inline. On
+  re-expand: serve from `data-educational-loaded="1"` cache. Collapse
+  hides without destroying the DOM. `result.js` is conditionally
+  included from `templates/result.html` only when
+  `analysis.educational_enabled`.
+- CSS uses CLAUDE.md §5 severity tokens with low-alpha tints — red
+  `rgba(255,77,79,.08)` for vulnerable, green `rgba(82,196,26,.08)` for
+  fixed, neutral surface for the explanation.
+- `report_generator._append_educational_block` slots the same three
+  panels into the PDF body under each source finding when
+  `analysis.educational_enabled=True`. Uses ReportLab Table cells with
+  HexColor tints matching the screen styling.
+- `db_manager.get_finding(finding_id)` — new single-row helper indexed
+  on the PRIMARY KEY column. Keeps the no-raw-SQL-outside-db_manager
+  rule intact.
+
+**Verified working:**
+- `python -m pytest tests/ -v` → **39 passed** (3 db + 6 manifest + 8
+  source + 5 dynamic + 4 risk + 3 forensic + 4 report + 4 SBP + 2
+  educational)
+- End-to-end smoke test (Flask test client, synthetic APK,
+  `educational_enabled=True`):
+  - 4 educational-toggle buttons rendered (2 source findings ×
+    appearance on Source Code tab and Risk top-issues tab)
+  - `/api/finding/<id>/educational` for a source finding → **200 +
+    `{explanation, fixed_snippet, vulnerable_snippet}`**
+  - Same endpoint for a manifest finding → **404 + `{"error": "No
+    educational content for this finding"}`** as designed
+  - PDF size 22,186 bytes (up from 17,095 baseline without educational
+    mode) and contains the literal string "Why this matters"
+- All 34 patterns in `VULN_PATTERNS` have a complete remediation dict —
+  re-asserted in `test_every_pattern_has_complete_remediation_dict`
+  (Phase 3 already had this; Phase 8 keeps a copy in its own test file
+  so the contract is visible to anyone touching Educational Mode).
+
+**Pending / deferred:**
+- A markdown-style code highlighter for the educational snippets was
+  intentionally NOT added per PHASES.md scope ("no Prism.js, no
+  Highlight.js — extra dep, not worth it for a single language").
+  Monospace font + tinted background does the job.
+- Manifest, dynamic, and SBP findings do not get educational content
+  per ARCH §11.3. They could in Phase 9 if Nayab wants a "general
+  recommendation" block for non-source findings, but that's outside
+  Phase 8's contract.
+
+**Known issues:**
+- The 404 JSON body uses key `"error"`, not the more idiomatic
+  `"detail"` or `"message"`. Matches the existing
+  `/api/analysis/<id>/status` 404 convention from Phase 1, so the API
+  surface is consistent.
+
+**Mid-execution decisions:**
+- D-20: `educational.py` builds a `dict[pattern_id, remediation]` lookup
+  at module import time, not on every request. O(1) per finding
+  thereafter; saves a re-scan of the 34-entry catalog. The lookup is
+  refreshed only on process restart — fine, since patterns are static
+  code.
+- D-21: Expand button renders only on Phase-3 findings (`finding.phase
+  == 3`). Even if a Phase 2 or 7 finding *somehow* carried a
+  source-catalog pattern_id (it doesn't, but defensively) the UI would
+  not show the toggle — keeps the differentiator scoped to where the
+  pedagogy makes sense.
+- D-22: result.js is gated at the template level
+  (`{% if analysis.educational_enabled %}`) so the script is not
+  shipped at all on analyses where the mode is off. Zero JS overhead
+  for the no-educational case.
+- D-23: Educational content is rendered inline in the PDF
+  (immediately after the finding card) rather than as a separate
+  appendix. Same physical placement as the on-screen expansion, so
+  Nayab can walk a viva audience through the report and the screen in
+  lockstep.
+
+**Files touched:** 3 added, 6 modified.
+
+**Next session picks up at:** Phase 9 — Testing & Polish (the final
+phase). Backfill to 34+ tests (we're already at 39), end-to-end smoke
+tests, README polish, viva walkthrough.
 
 ### Phase 9 — Testing & Polish
 
@@ -951,6 +1055,55 @@ never crash the analysis. The forensic appendix still records that the
 rule was attempted; future polish can upgrade the status to a dedicated
 "ERROR" state.
 **Reversible?** Easy — drop the catch.
+
+### D-20: Educational lookup table built at import time
+**Made in:** Phase 8
+**Date:** 2026-05-14
+**Decision:** `modules/educational.py` builds
+`_REMEDIATION_BY_PATTERN_ID = {p['id']: p['remediation'] for p in
+VULN_PATTERNS}` at import time.
+**Reasoning:** 34-entry catalog × every educational request would be
+wasteful; building the dict once is trivially fast. Patterns are static
+Python data, so the lookup never goes stale within a process lifetime.
+**Reversible?** Trivially — replace with a generator if memory ever
+matters.
+
+### D-21: Expand button rendered only on Phase 3 findings
+**Made in:** Phase 8
+**Date:** 2026-05-14
+**Decision:** `finding_card.html` gates the expand button on
+`analysis.educational_enabled AND finding.pattern_id AND
+finding.phase == 3`. Phase 2 (manifest), 4 (dynamic) and 7 (SBP)
+findings get no toggle even with the mode on.
+**Reasoning:** Educational content lives only in
+`vuln_patterns.py` per ARCH §11.3. Even if a non-Phase-3 finding
+somehow carried a source-pattern id, the toggle would be pedagogically
+wrong on a manifest "dangerous permission" card. The phase check makes
+the intent explicit.
+**Reversible?** Easy — drop the phase predicate.
+
+### D-22: result.js conditionally included
+**Made in:** Phase 8
+**Date:** 2026-05-14
+**Decision:** `<script src=".../js/result.js">` is included only when
+`analysis.educational_enabled=True`. Other analyses ship zero
+educational-mode JS.
+**Reasoning:** Smaller payload + no event-listener overhead for the
+common case (Nayab toggles educational mode for demos, not for every
+analysis). The flag is persisted on the analyses row, so the include
+decision is deterministic.
+**Reversible?** Trivially.
+
+### D-23: Educational PDF content rendered inline, not appendix
+**Made in:** Phase 8
+**Date:** 2026-05-14
+**Decision:** When `educational_enabled=True`, the PDF emits the
+three remediation panels immediately under each source finding's card,
+not as a separate "Educational Content" appendix.
+**Reasoning:** Mirrors the on-screen UX exactly — readers (and viva
+audiences) can read the report and watch Nayab demo the click-to-expand
+on screen in lockstep. An appendix would force them to flip pages.
+**Reversible?** Easy — move the call out of `_build_source_section`.
 
 ### D-19: Single source of truth for SBP conditional rendering
 **Made in:** Phase 7

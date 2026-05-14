@@ -286,6 +286,15 @@ def get_findings(analysis_id: str) -> list[dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
+def get_finding(finding_id: str) -> dict[str, Any] | None:
+    """Look up a single finding by its UUID id. Used by educational lookups."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM findings WHERE id = ?", (finding_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
 # ---------- manifest metadata / permissions / exported components ----------
 
 def save_manifest_metadata(analysis_id: str, manifest: dict[str, Any]) -> None:

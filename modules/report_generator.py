@@ -33,7 +33,7 @@ from reportlab.platypus import (
 )
 
 import config
-from modules import db_manager, forensic, risk_engine
+from modules import db_manager, educational, forensic, risk_engine
 from modules.patterns.owasp_cwe_map import OWASP_MTW10_2024
 
 log = logging.getLogger(__name__)
@@ -109,7 +109,10 @@ def generate(analysis_id: str) -> str:
     _build_risk_summary(story, styles, risk)
     _build_manifest_section(story, styles, analysis, permissions, exported,
                             [f for f in findings if f["phase"] == 2])
-    _build_source_section(story, styles, [f for f in findings if f["phase"] == 3])
+    _build_source_section(
+        story, styles, [f for f in findings if f["phase"] == 3],
+        educational_enabled=bool(analysis.get("educational_enabled")),
+    )
     if analysis.get("dynamic_enabled"):
         _build_dynamic_section(story, styles, runtime_events,
                                [f for f in findings if f["phase"] == 4])
@@ -300,7 +303,7 @@ def _build_manifest_section(story, styles, analysis, permissions, exported, mani
     story.append(PageBreak())
 
 
-def _build_source_section(story, styles, source_findings):
+def _build_source_section(story, styles, source_findings, *, educational_enabled: bool = False):
     story.append(Paragraph("Source Code Analysis", styles["H1"]))
     if not source_findings:
         story.append(Paragraph("No source code findings.", styles["Muted"]))
@@ -314,7 +317,48 @@ def _build_source_section(story, styles, source_findings):
         story.append(Paragraph(f"{category} ({len(by_cat[category])})", styles["H2"]))
         for f in by_cat[category]:
             _append_finding(story, styles, f)
+            if educational_enabled:
+                _append_educational_block(story, styles, f)
     story.append(PageBreak())
+
+
+def _append_educational_block(story, styles, finding):
+    """When educational mode is on, append a 3-row remediation block under
+    the source finding card. Manifest/dynamic/SBP findings have no
+    pattern_id in VULN_PATTERNS and produce no block (None lookup)."""
+    rem = educational.get_remediation_for_pattern(finding.get("pattern_id"))
+    if not rem:
+        return
+
+    vuln_bg = colors.HexColor("#fff1f0")   # light red tint, print-friendly
+    fix_bg = colors.HexColor("#f3fff0")    # light green tint
+    neutral_bg = colors.HexColor("#f5f7fa")
+
+    def _row(label, body, bg, accent):
+        cell = Paragraph(
+            f"<b>{label}</b><br/><font face='Courier' size='8'>"
+            f"{_str(body).replace('&', '&amp;').replace('<', '&lt;').replace(chr(10), '<br/>')}"
+            f"</font>",
+            styles["Body"],
+        )
+        t = Table([[cell]], colWidths=[16 * cm])
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), bg),
+            ("LINEBEFORE", (0, 0), (0, -1), 2, accent),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        return t
+
+    story.append(_row("Vulnerable", rem["vulnerable_snippet"],
+                      vuln_bg, _SEV_COLOR["HIGH"]))
+    story.append(_row("Fixed", rem["fixed_snippet"],
+                      fix_bg, _SEV_COLOR["LOW"]))
+    story.append(_row("Why this matters", rem["explanation"],
+                      neutral_bg, _BORDER))
+    story.append(Spacer(1, 8))
 
 
 def _build_dynamic_section(story, styles, runtime_events, dynamic_findings):

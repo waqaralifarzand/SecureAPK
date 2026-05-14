@@ -213,3 +213,58 @@
 .sbp-pill-na     { background: rgba(139, 148, 158, .15); color: var(--text-secondary); }
 .sbp-title { margin: 6px 0 4px; font-size: 14px; }
 .sbp-evidence { margin: 0; font-size: 13px; color: var(--text-secondary); }
+
+.educational-toggle {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.educational-toggle:hover { background: rgba(0, 212, 255, .08); }
+
+.educational-content { margin-top: 10px; }
+.educational-block {
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin: 8px 0;
+  border: 1px solid var(--border);
+}
+.educational-block h5 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.educational-block pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.educational-block p { margin: 0; font-size: 13px; }
+
+.educational-vulnerable {
+  background: rgba(255, 77, 79, 0.08);
+  border-color: var(--sev-high);
+}
+.educational-vulnerable h5 { color: var(--sev-high); }
+
+.educational-fixed {
+  background: rgba(82, 196, 26, 0.08);
+  border-color: var(--sev-low);
+}
+.educational-fixed h5 { color: var(--sev-low); }
+
+.educational-explanation {
+  background: var(--bg-surface);
+  border-color: var(--border);
+}
+.educational-explanation h5 { color: var(--text-secondary); }
