@@ -102,10 +102,22 @@ def view_analysis(analysis_id: str):
         (e["details"] for e in audit_entries if e["action"] == "dynamic_status"),
         None,
     )
+    # Phase 7: SBP rule results (only populated when sbp_enabled=True).
+    sbp_rules = db_manager.get_sbp_findings(analysis_id) if analysis.get("sbp_enabled") else []
+    sbp_counts = {"COMPLIANT": 0, "NON_COMPLIANT": 0,
+                  "NOT_APPLICABLE": 0, "MANUAL_REVIEW": 0}
+    for r in sbp_rules:
+        sbp_counts[r["compliance_status"]] = sbp_counts.get(r["compliance_status"], 0) + 1
+
     # Recompute the RiskAssessment for the view so the breakdown / top-issues
-    # tables have access to the structured data (the analyses row only stores
-    # score + classification).
-    risk = risk_engine.compute_from_findings(findings) if analysis["status"] == "completed" else None
+    # tables have access to the structured data. Mirror the orchestrator-side
+    # `risk_engine.compute()` by appending SBP non-compliant findings into the
+    # in-memory list before scoring.
+    if analysis["status"] == "completed":
+        risk_findings = list(findings) + risk_engine._sbp_findings_as_findings(analysis_id)
+        risk = risk_engine.compute_from_findings(risk_findings)
+    else:
+        risk = None
     # Group source findings by category for the Source Code tab.
     source_by_category: dict[str, list] = {}
     for f in source_findings:
@@ -126,6 +138,8 @@ def view_analysis(analysis_id: str):
         exported_components=exported_components,
         parser_used=parser_used,
         risk=risk,
+        sbp_rules=sbp_rules,
+        sbp_counts=sbp_counts,
     )
 
 

@@ -17,12 +17,12 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 | 3 — Source Code Analyzer | ✅ Merged | 2026-05-14 | 2026-05-14 | [#3](https://github.com/waqaralifarzand/SecureAPK/pull/3) |
 | 4 — Dynamic Analyzer | ✅ Merged | 2026-05-14 | 2026-05-14 | [#4](https://github.com/waqaralifarzand/SecureAPK/pull/4) |
 | 5 — Risk Engine + OWASP/CWE | ✅ Merged | 2026-05-14 | 2026-05-14 | [#5](https://github.com/waqaralifarzand/SecureAPK/pull/5) |
-| 6 — PDF Reports + Forensic | 🔄 PR open | 2026-05-14 | 2026-05-14 | _(see entry below)_ |
-| 7 — SBP Banking Compliance | ⬜ Not started | — | — | — |
+| 6 — PDF Reports + Forensic | ✅ Merged | 2026-05-14 | 2026-05-14 | [#6](https://github.com/waqaralifarzand/SecureAPK/pull/6) |
+| 7 — SBP Banking Compliance | 🔄 PR open | 2026-05-14 | 2026-05-14 | _(see entry below)_ |
 | 8 — Educational Mode | ⬜ Not started | — | — | — |
 | 9 — Testing & Polish | ⬜ Not started | — | — | — |
 
-**Running test count:** 33 / 34 target
+**Running test count:** 37 / 34 target (target hit + 3 over)
 
 ---
 
@@ -30,7 +30,7 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 
 - **Repo:** https://github.com/waqaralifarzand/SecureAPK
 - **Default branch:** `main`
-- **Active branch:** `phase-6-reports-forensic` (Phase 6)
+- **Active branch:** `phase-7-sbp-compliance` (Phase 7)
 - **Local dev URL:** http://127.0.0.1:5000 _(when `python app.py` is running)_
 
 ---
@@ -634,7 +634,110 @@ human-friendly filename (`secureapk_<pkg>_<id8>.pdf`).
 
 ### Phase 7 — SBP Banking Compliance
 
-_Not yet started._
+**Branch:** `phase-7-sbp-compliance`
+**PR:** _(opened as draft, URL filled in after the PR is created)_
+**Completed:** 2026-05-14
+**Test count after this phase:** 37 / 34
+
+**What was built — the second MobSF differentiator ships:**
+`modules/sbp_compliance.py` + `modules/patterns/sbp_rules.py` give SecureAPK
+a dedicated State Bank of Pakistan cybersecurity-framework rule pack
+(currently **10 rules** covering SBP-CSF sections 3.2 / 3.4 / 3.5 / 4.1 /
+4.2 / 4.3 / 5.1 / 5.2 / 6.3 — TLS enforcement, cert pinning, sensitive-data
+logging, hardcoded creds, FLAG_SECURE, root detection, session timeout,
+plaintext storage, biometric auth, networkSecurityConfig). Each rule's
+`check(manifest, source, dynamic)` callable consumes the already-computed
+Phase 2 / 3 / 4 results — SBP is a thin compliance layer, *not* a parallel
+analyzer (per ARCH §11.2). Banking-app heuristic in
+`sbp_compliance.is_banking_app(manifest)`: matches on package substrings
+(`bank`/`pay`/`wallet`/`finance`/`cash`), app-name tokens (`JazzCash`,
+`EasyPaisa`, `HBL`, `MCB`, `UBL`, `Allied`, `Faysal`, `BankIslami`,
+`Meezan`, `Habib`, `Standard Chartered`, `Soneri`, `Askari`), or the
+SMS+CONTACTS+INTERNET permission combo.
+
+**The wiring (this was the bulk of the work):**
+- Orchestrator reordered — Phase 7 now sits **between Phase 4 (Dynamic)
+  and Phase 5 (Risk Engine)**, gated by `options.sbp_enabled`. SBP
+  findings feed the risk engine's `sbp` bucket which had been sitting
+  at 0 since Phase 5.
+- `risk_engine.compute(analysis_id)` extended with
+  `_sbp_findings_as_findings(analysis_id)`: pulls NON_COMPLIANT rows
+  from the `sbp_findings` table, projects them to the standard Finding
+  shape (`phase=7, category='SBP Compliance'`), merges with the primary
+  findings list. Same scoring path applies; `breakdown_by_phase['sbp']`
+  accumulates naturally. The result-page view recomputes risk the same
+  way so the displayed breakdown matches the persisted score.
+- `db_manager.save_sbp_findings()` writes one row per rule (any
+  status); `get_sbp_findings(analysis_id, status_filter=None)` reads
+  back with optional status filter for the risk-engine join.
+- `report_generator` learns a conditional `_build_sbp_section` that
+  ships in the PDF only when `analysis.sbp_enabled=True` — slotted
+  between Source/Dynamic and the OWASP summary.
+- `templates/result.html` gets a conditional SBP Compliance tab nav
+  button + tab panel; `templates/_partials/sbp_card.html` is a new
+  per-rule card. Colour scheme follows CLAUDE.md §5 tokens
+  (compliant = green border, non-compliant = red, manual = cyan accent,
+  not-applicable = grey).
+
+**Verified working:**
+- `python -m pytest tests/ -v` → **37 passed** (3 db + 6 manifest + 8
+  source + 5 dynamic + 4 risk + 3 forensic + 4 report + 4 SBP)
+- End-to-end smoke test with a banking-flavoured synthetic APK
+  (`JazzCash` in DEX strings, banking permission combo, SBP enabled):
+  - Banking heuristic correctly flagged: `banking=True, reason='App name contains jazzcash'`
+  - 10 SBP rows persisted: **3 COMPLIANT, 5 MANUAL_REVIEW, 2 NON_COMPLIANT**
+  - `breakdown_by_phase['sbp'] = 15.0` (non-zero — acceptance criterion 6 ✅)
+  - Result page renders the SBP Compliance tab with summary chips +
+    10 sbp-cards
+  - PDF has the "SBP Cybersecurity Framework Compliance" section
+    (24,035 bytes, up from 17,095 without SBP)
+- Negative path (sbp_enabled=False) — no SBP rows persisted, no SBP
+  tab in HTML, no SBP section in PDF. Verified in
+  `test_sbp_findings_excluded_when_disabled`.
+
+**Risk-engine integration (D-17 / D-18 below):**
+The cleanest integration was to pull SBP non-compliant rows back out at
+risk-compute time rather than insert them into the `findings` table.
+Keeps the per-table semantics clean (`findings` = automatic detections,
+`sbp_findings` = compliance audit) while letting one scoring path
+handle both. Documented in the `compute()` docstring so future readers
+understand the join.
+
+**Pending / deferred:**
+- The auto-trigger logic (banking heuristic forcibly enabling SBP even
+  if the user didn't tick the box) is *not yet wired into the
+  orchestrator*. For this phase, SBP only runs when
+  `options.sbp_enabled=True`. The heuristic is computed and surfaced in
+  the SBP findings output (so the UI can show "Detected as banking
+  app: YES/NO") — the auto-trigger is a Phase 9 polish item.
+- 4 of the 10 rules return `MANUAL_REVIEW` because their checks
+  (FLAG_SECURE on activities, root detection presence, biometric prompt
+  usage, session timeout) cannot be reliably detected by the current
+  static pattern catalog. Phase 9 polish could add dedicated regex
+  patterns to upgrade these to COMPLIANT / NON_COMPLIANT.
+
+**Known issues:**
+- The PDF SBP section is included whenever `analysis.sbp_enabled=True`
+  even if no SBP rows exist (edge case if Phase 7 itself failed). The
+  section degrades gracefully ("SBP compliance was enabled but no rule
+  rows were recorded") so this is non-blocking.
+
+**Mid-execution decisions:**
+- D-17 (decisions log): NON_COMPLIANT SBP rows are joined into the
+  risk engine's findings list **at compute time**, not by being
+  written into the `findings` table. Cleaner semantics, and the join
+  is cheap (10 rows max).
+- D-18: When a rule's `check()` raises, the catch coerces the status
+  to `NOT_APPLICABLE` and logs. Same contract as Phase 4: rule bugs
+  must never crash the analysis.
+- D-19: Conditional rendering uses
+  `{% if analysis.sbp_enabled %}` everywhere (tab nav button, tab panel,
+  PDF section). The single source of truth is the `analyses.sbp_enabled`
+  column persisted at upload time — the UI never re-derives it.
+
+**Files touched:** 4 added, 7 modified.
+
+**Next session picks up at:** Phase 8 — Educational Mode (Feature 3).
 
 ### Phase 8 — Educational Mode
 
@@ -821,6 +924,43 @@ different PDF bytes because the trailer metadata is timestamped from the
 system clock. With `invariant=True` + `pageCompression=0` + deterministic
 finding sort, byte-identical regeneration is achievable.
 **Reversible?** Easy — drop the kwarg.
+
+### D-17: SBP integration joins NON_COMPLIANT rows at risk-compute time
+**Made in:** Phase 7
+**Date:** 2026-05-14
+**Decision:** NON_COMPLIANT SBP rule rows are read back from
+`sbp_findings` (via `get_sbp_findings(status_filter='NON_COMPLIANT')`) at
+risk-compute time and projected to the standard Finding shape (phase=7,
+category='SBP Compliance'). They are NOT inserted into the `findings`
+table.
+**Reasoning:** Two clean semantics — `findings` = automatic detections
+from Phases 2/3/4, `sbp_findings` = compliance audit log. One scoring
+path handles both because the projection at compute time normalises the
+shape. Cost: a single extra DB read per risk computation (10 rows max).
+**Reversible?** Easy — also write SBP findings into `findings` and drop
+the projection, if Phase 9 wants a single-table view.
+
+### D-18: SBP rule-check exceptions degrade to NOT_APPLICABLE
+**Made in:** Phase 7
+**Date:** 2026-05-14
+**Decision:** `sbp_compliance.analyze` wraps each rule's `check()` call
+in a broad try/except. On exception the status is coerced to
+`NOT_APPLICABLE` with the error message as evidence; analysis continues.
+**Reasoning:** Same contract Phase 4 (dynamic) uses — rule bugs must
+never crash the analysis. The forensic appendix still records that the
+rule was attempted; future polish can upgrade the status to a dedicated
+"ERROR" state.
+**Reversible?** Easy — drop the catch.
+
+### D-19: Single source of truth for SBP conditional rendering
+**Made in:** Phase 7
+**Date:** 2026-05-14
+**Decision:** Every conditional ("SBP tab visible?", "SBP PDF section
+present?") reads `analyses.sbp_enabled` directly — never re-derives.
+**Reasoning:** Persisting the option at upload time means the result
+page is consistent with what actually ran. Re-deriving from sbp_findings
+count would lie when SBP was enabled but produced 0 NON_COMPLIANT rows.
+**Reversible?** Trivially — but there's no reason to.
 
 ### D-16: Finding-sort key is (phase, severity_rank, category, title)
 **Made in:** Phase 6

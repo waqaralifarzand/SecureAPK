@@ -26,9 +26,39 @@ _PHASE_BUCKET = {2: "manifest", 3: "source", 4: "dynamic", 7: "sbp"}
 
 
 def compute(analysis_id: str) -> dict[str, Any]:
-    """Return a `RiskAssessment` dict matching ARCHITECTURE.md sec 6."""
-    findings = db_manager.get_findings(analysis_id)
+    """Return a `RiskAssessment` dict matching ARCHITECTURE.md sec 6.
+
+    Phase 7 integration: NON_COMPLIANT SBP findings live in their own
+    `sbp_findings` table with a different shape (rule_id, status,
+    evidence). We pull them out here, project to the standard Finding
+    shape with `phase=7, category='SBP Compliance'`, and merge with the
+    primary `findings` list. That way the same scoring path applies and
+    the `sbp` bucket in `breakdown_by_phase` accumulates naturally.
+    """
+    findings = list(db_manager.get_findings(analysis_id))
+    findings.extend(_sbp_findings_as_findings(analysis_id))
     return compute_from_findings(findings)
+
+
+def _sbp_findings_as_findings(analysis_id: str) -> list[dict[str, Any]]:
+    rows = db_manager.get_sbp_findings(analysis_id, status_filter="NON_COMPLIANT")
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        out.append({
+            "id": str(r.get("id")) if r.get("id") is not None else None,
+            "phase": 7,
+            "category": "SBP Compliance",
+            "severity": (r.get("severity") or "MEDIUM"),
+            "title": f"{r['sbp_rule_id']}: {r['rule_name']}",
+            "description": r.get("evidence") or "",
+            "file_location": "SBP rule",
+            "line_number": None,
+            "code_snippet": None,
+            "owasp_id": None,
+            "cwe_id": None,
+            "pattern_id": r["sbp_rule_id"],
+        })
+    return out
 
 
 def compute_from_findings(findings: list[dict[str, Any]]) -> dict[str, Any]:

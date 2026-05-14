@@ -51,6 +51,7 @@
   <button class="tab" data-tab="dynamic">Dynamic</button>
   <button class="tab" data-tab="risk">Risk</button>
   <button class="tab" data-tab="permissions">Permissions</button>
+  {% if analysis.sbp_enabled %}<button class="tab" data-tab="sbp">SBP Compliance</button>{% endif %}
 </nav>
 
 <section class="tab-panel tab-panel-active" data-tab-panel="manifest">
@@ -296,6 +297,34 @@
     {% endif %}
   </div>
 </section>
+
+{% if analysis.sbp_enabled %}
+<section class="tab-panel" data-tab-panel="sbp">
+  <div class="panel">
+    <h2>SBP Cybersecurity Framework Compliance</h2>
+    <p class="muted">State Bank of Pakistan cybersecurity framework rule pack
+    applied to mobile banking applications. SBP rules are evaluated against
+    the static analysis results from earlier phases.</p>
+    <div class="sbp-summary">
+      <div class="sbp-count sbp-ok">       <span>{{ sbp_counts.COMPLIANT }}</span> compliant</div>
+      <div class="sbp-count sbp-danger">   <span>{{ sbp_counts.NON_COMPLIANT }}</span> non-compliant</div>
+      <div class="sbp-count sbp-manual">   <span>{{ sbp_counts.MANUAL_REVIEW }}</span> manual review</div>
+      <div class="sbp-count sbp-na">       <span>{{ sbp_counts.NOT_APPLICABLE }}</span> not applicable</div>
+    </div>
+  </div>
+
+  {% if sbp_rules %}
+  <div class="panel">
+    <h3>Per-Rule Status</h3>
+    {% for rule in sbp_rules %}
+      {% include '_partials/sbp_card.html' %}
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="panel"><p class="muted">SBP rules have not been evaluated for this analysis.</p></div>
+  {% endif %}
+</section>
+{% endif %}
 
 {% endif %}
 {% endblock %}

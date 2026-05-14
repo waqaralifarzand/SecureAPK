@@ -10,7 +10,7 @@ from dataclasses import dataclass, asdict
 
 from modules import (
     db_manager, dynamic_analyzer, forensic, manifest_analyzer,
-    report_generator, risk_engine, source_analyzer,
+    report_generator, risk_engine, sbp_compliance, source_analyzer,
 )
 
 
@@ -82,6 +82,7 @@ def run_analysis(analysis_id: str, apk_path: str, options: AnalysisOptions) -> N
         db_manager.set_progress(analysis_id, 50)
 
         # Phase 4 — Dynamic runtime analysis (optional).
+        dynamic = None
         if options.dynamic_enabled:
             db_manager.set_current_phase(analysis_id, 4)
             dynamic = dynamic_analyzer.analyze(apk_path, manifest.get("package_name"))
@@ -102,10 +103,26 @@ def run_analysis(analysis_id: str, apk_path: str, options: AnalysisOptions) -> N
             )
         db_manager.set_progress(analysis_id, 70)
 
-        # Placeholder for Phase 7 (SBP, optional).
+        # Phase 7 — SBP compliance (optional). Runs BEFORE the risk engine
+        # so non-compliant rules feed the `sbp` bucket in
+        # breakdown_by_phase. SBP does NOT re-parse the APK; it consumes
+        # the manifest + source + dynamic dicts already in memory.
         if options.sbp_enabled:
             db_manager.set_current_phase(analysis_id, 7)
-            log.info("Phase 7 (SBP) not implemented yet for analysis %s", analysis_id)
+            sbp = sbp_compliance.analyze(apk_path, manifest, source, dynamic)
+            db_manager.save_sbp_findings(analysis_id, sbp["rules"])
+            db_manager.add_audit_entry(
+                analysis_id, "sbp_status",
+                details=f"banking={sbp['is_banking_app']}, "
+                        f"non_compliant={sbp['non_compliant_count']}",
+            )
+            forensic.audit(
+                "phase_7_completed", analysis_id,
+                details={
+                    "is_banking_app": sbp["is_banking_app"],
+                    "counts": sbp["counts"],
+                },
+            )
         db_manager.set_progress(analysis_id, 80)
 
         # Phase 5 — Risk scoring + OWASP/CWE aggregation.

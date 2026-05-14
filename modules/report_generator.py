@@ -72,7 +72,12 @@ def generate(analysis_id: str) -> str:
     exported = db_manager.get_exported_components(analysis_id)
     runtime_events = db_manager.get_runtime_events(analysis_id)
     audit_entries = forensic.get_chain_of_custody(analysis_id)
-    risk = risk_engine.compute_from_findings(findings)
+    sbp_rules = (db_manager.get_sbp_findings(analysis_id)
+                 if analysis.get("sbp_enabled") else [])
+    # Include SBP non-compliant rows in scoring so the PDF risk page
+    # matches the orchestrator-side risk write.
+    risk_findings = list(findings) + risk_engine._sbp_findings_as_findings(analysis_id)
+    risk = risk_engine.compute_from_findings(risk_findings)
 
     config.REPORTS_PATH.mkdir(parents=True, exist_ok=True)
     out_path = config.REPORTS_PATH / f"{analysis_id}.pdf"
@@ -108,6 +113,8 @@ def generate(analysis_id: str) -> str:
     if analysis.get("dynamic_enabled"):
         _build_dynamic_section(story, styles, runtime_events,
                                [f for f in findings if f["phase"] == 4])
+    if analysis.get("sbp_enabled"):
+        _build_sbp_section(story, styles, sbp_rules)
     _build_owasp_cwe_section(story, styles, risk)
     _build_audit_appendix(story, styles, audit_entries)
 
@@ -335,6 +342,36 @@ def _build_dynamic_section(story, styles, runtime_events, dynamic_findings):
         for f in dynamic_findings:
             _append_finding(story, styles, f)
 
+    story.append(PageBreak())
+
+
+def _build_sbp_section(story, styles, sbp_rules):
+    story.append(Paragraph("SBP Cybersecurity Framework Compliance", styles["H1"]))
+    if not sbp_rules:
+        story.append(Paragraph(
+            "SBP compliance was enabled for this analysis but no rule rows "
+            "were recorded.", styles["Muted"],
+        ))
+        story.append(PageBreak())
+        return
+
+    counts: dict[str, int] = {}
+    for r in sbp_rules:
+        counts[r["compliance_status"]] = counts.get(r["compliance_status"], 0) + 1
+    summary_parts = [f"{counts.get(k, 0)} {k}" for k in
+                     ("COMPLIANT", "NON_COMPLIANT", "MANUAL_REVIEW", "NOT_APPLICABLE")]
+    story.append(Paragraph(" &nbsp;|&nbsp; ".join(summary_parts), styles["Body"]))
+    story.append(Spacer(1, 6))
+
+    rows = [["Rule", "Status", "Severity", "Evidence"]]
+    for r in sbp_rules:
+        rows.append([
+            _str(r.get("sbp_rule_id")),
+            _str(r.get("compliance_status")),
+            _str(r.get("severity") or "—"),
+            _trim(_str(r.get("evidence")), 80),
+        ])
+    story.append(_styled_table(rows, [3 * cm, 3 * cm, 2 * cm, 8 * cm]))
     story.append(PageBreak())
 
 

@@ -424,6 +424,42 @@ def set_pdf_path(analysis_id: str, pdf_path: str) -> None:
         )
 
 
+# ---------- SBP compliance (Phase 7) ----------
+
+def save_sbp_findings(analysis_id: str, rule_results: Iterable[dict[str, Any]]) -> None:
+    """Persist one row per SBP rule (any status). The risk engine pulls
+    NON_COMPLIANT rows back out via get_sbp_findings(status='NON_COMPLIANT')."""
+    with _connect() as conn:
+        for r in rule_results:
+            conn.execute(
+                """
+                INSERT INTO sbp_findings
+                    (analysis_id, sbp_rule_id, rule_name, compliance_status,
+                     severity, evidence)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    analysis_id,
+                    r["rule_id"],
+                    r["name"],
+                    r["compliance_status"],
+                    r.get("severity"),
+                    r.get("evidence"),
+                ),
+            )
+
+
+def get_sbp_findings(analysis_id: str, status_filter: str | None = None) -> list[dict[str, Any]]:
+    sql = "SELECT * FROM sbp_findings WHERE analysis_id = ?"
+    params: tuple[Any, ...] = (analysis_id,)
+    if status_filter:
+        sql += " AND compliance_status = ?"
+        params += (status_filter,)
+    sql += " ORDER BY sbp_rule_id"
+    with _connect() as conn:
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+
 # ---------- audit log ----------
 
 def add_audit_entry(analysis_id: str, action: str, actor: str = "system", details: str | None = None) -> None:
