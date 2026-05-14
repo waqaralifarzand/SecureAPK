@@ -270,7 +270,7 @@ without educational expansion (deferred to Phase 8 per spec).
 ### Phase 3 — Source Code Analyzer
 
 **Branch:** `phase-3-source-analyzer`
-**PR:** _(opened as draft, URL filled in after the PR is created)_
+**PR:** [#3](https://github.com/waqaralifarzand/SecureAPK/pull/3) (draft)
 **Completed:** 2026-05-14
 **Test count after this phase:** 17 / 34
 
