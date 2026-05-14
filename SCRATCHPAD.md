@@ -189,7 +189,7 @@ suffixes), 14 legacy files deleted per task description.
 ### Phase 2 — Manifest Analyzer
 
 **Branch:** `claude/manifest-analyzer-tGGTJ`
-**PR:** _(opened as draft, URL filled in after `gh pr create`)_
+**PR:** [#2](https://github.com/waqaralifarzand/SecureAPK/pull/2) (draft)
 **Completed:** 2026-05-14
 **Test count after this phase:** 9 / 34
 
