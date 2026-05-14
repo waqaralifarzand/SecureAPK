@@ -1,0 +1,18 @@
+{# Reusable finding card. Phase 2 implementation — no educational expansion
+   button (that's Phase 8). Expected variable: `finding` (dict per ARCHITECTURE.md §6). #}
+<article class="finding-card severity-{{ finding.severity|lower }}">
+  <header class="finding-head">
+    <span class="severity-badge severity-badge-{{ finding.severity|lower }}">{{ finding.severity }}</span>
+    <h4 class="finding-title">{{ finding.title }}</h4>
+  </header>
+  <dl class="finding-meta">
+    <dt>Category</dt><dd>{{ finding.category }}</dd>
+    {% if finding.file_location %}<dt>Location</dt><dd class="mono">{{ finding.file_location }}{% if finding.line_number %}:{{ finding.line_number }}{% endif %}</dd>{% endif %}
+    {% if finding.owasp_id %}<dt>OWASP</dt><dd>{{ finding.owasp_id }}</dd>{% endif %}
+    {% if finding.cwe_id %}<dt>CWE</dt><dd>{{ finding.cwe_id }}</dd>{% endif %}
+  </dl>
+  <p class="finding-desc">{{ finding.description }}</p>
+  {% if finding.code_snippet %}
+  <pre class="finding-snippet mono">{{ finding.code_snippet }}</pre>
+  {% endif %}
+</article>

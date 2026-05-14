@@ -83,7 +83,23 @@ def view_analysis(analysis_id: str):
     if not analysis:
         abort(404)
     findings = db_manager.get_findings(analysis_id)
-    return render_template("result.html", analysis=analysis, findings=findings)
+    permissions = db_manager.get_permissions(analysis_id)
+    exported_components = db_manager.get_exported_components(analysis_id)
+    audit_entries = db_manager.get_audit_log(analysis_id)
+    parser_used = next(
+        (e["details"] for e in audit_entries if e["action"] == "manifest_parser"),
+        None,
+    )
+    manifest_findings = [f for f in findings if f["phase"] == 2]
+    return render_template(
+        "result.html",
+        analysis=analysis,
+        findings=findings,
+        manifest_findings=manifest_findings,
+        permissions=permissions,
+        exported_components=exported_components,
+        parser_used=parser_used,
+    )
 
 
 @app.route("/analysis/<analysis_id>/report.pdf")

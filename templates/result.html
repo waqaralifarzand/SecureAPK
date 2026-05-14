@@ -5,9 +5,10 @@
 {% endblock %}
 {% block content %}
 <section class="result-header">
-  <h1>Analysis</h1>
+  <h1>{{ analysis.app_name or analysis.apk_filename }}</h1>
   <dl class="meta-grid">
     <dt>Analysis ID</dt><dd class="mono">{{ analysis.id }}</dd>
+    <dt>Package</dt><dd class="mono">{{ analysis.package_name or '&mdash;' }}</dd>
     <dt>APK</dt><dd>{{ analysis.apk_filename }} ({{ analysis.apk_size_bytes }} bytes)</dd>
     <dt>SHA-256</dt><dd class="mono hash">{{ analysis.apk_hash_sha256 }}</dd>
     <dt>Status</dt><dd><span id="status-pill" class="pill pill-{{ analysis.status }}">{{ analysis.status }}</span></dd>
@@ -17,10 +18,8 @@
 
 {% if analysis.status == 'running' %}
 <section class="panel">
-  <h2>Analysis pending &mdash; analyzers not yet implemented</h2>
-  <p class="muted">The placeholder orchestrator is running. This page polls
-  <code>/api/analysis/{{ analysis.id }}/status</code> every 2 seconds and refreshes
-  when the analysis completes.</p>
+  <h2>Analysis in progress</h2>
+  <p class="muted">This page polls <code>/api/analysis/{{ analysis.id }}/status</code> every 2 seconds and refreshes when the analysis completes.</p>
   <div class="progress"><div class="progress-bar" id="progress-bar" style="width: {{ analysis.progress_pct }}%"></div></div>
   <p class="muted">Current phase: <span id="current-phase">{{ analysis.current_phase or '-' }}</span></p>
 </section>
@@ -30,21 +29,138 @@
   <p>{{ analysis.error_message or 'Unknown error.' }}</p>
 </section>
 {% else %}
-<section class="panel">
-  <h2>No findings</h2>
-  <p class="muted">Analyzers are not yet implemented (Phase 1 placeholder). Real
-  static and dynamic analysis arrive in Phases 2-4.</p>
-</section>
-{% endif %}
 
-<section class="panel">
-  <h3>Audit trail</h3>
-  <p class="muted">Chain-of-custody records are written for every state change in this analysis.</p>
+<nav class="tabs" role="tablist">
+  <button class="tab tab-active" data-tab="manifest">Manifest</button>
+  <button class="tab" data-tab="source">Source Code</button>
+  <button class="tab" data-tab="dynamic">Dynamic</button>
+  <button class="tab" data-tab="risk">Risk</button>
+  <button class="tab" data-tab="permissions">Permissions</button>
+</nav>
+
+<section class="tab-panel tab-panel-active" data-tab-panel="manifest">
+  <div class="panel">
+    <h2>Application Metadata</h2>
+    <dl class="meta-grid">
+      <dt>Package name</dt><dd class="mono">{{ analysis.package_name or '&mdash;' }}</dd>
+      <dt>App name</dt><dd>{{ analysis.app_name or '&mdash;' }}</dd>
+      <dt>Version</dt><dd>{{ analysis.version_name or '&mdash;' }} ({{ analysis.version_code or '?' }})</dd>
+      <dt>Target SDK</dt><dd>{{ analysis.target_sdk or '&mdash;' }}</dd>
+      <dt>Min SDK</dt><dd>{{ analysis.min_sdk or '&mdash;' }}</dd>
+      <dt>Parser used</dt><dd class="mono">{{ parser_used or '&mdash;' }}</dd>
+    </dl>
+  </div>
+
+  <div class="panel">
+    <h2>Insecure Configuration Flags</h2>
+    {% set flags_findings = manifest_findings|selectattr('category', 'in', ['Debuggable Build','Cleartext Traffic','Backup Allowed','Missing Network Security Config'])|list %}
+    {% set debug_flag = (flags_findings|selectattr('category','equalto','Debuggable Build')|list|length) > 0 %}
+    {% set cleartext_flag = (flags_findings|selectattr('category','equalto','Cleartext Traffic')|list|length) > 0 %}
+    {% set backup_flag = (flags_findings|selectattr('category','equalto','Backup Allowed')|list|length) > 0 %}
+    {% set nsc_missing = (flags_findings|selectattr('category','equalto','Missing Network Security Config')|list|length) > 0 %}
+    <table class="data-table">
+      <thead><tr><th>Flag</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>android:debuggable</td><td><span class="pill pill-{{ 'danger' if debug_flag else 'ok' }}">{{ 'true' if debug_flag else 'false' }}</span></td></tr>
+        <tr><td>android:usesCleartextTraffic</td><td><span class="pill pill-{{ 'danger' if cleartext_flag else 'ok' }}">{{ 'true' if cleartext_flag else 'false' }}</span></td></tr>
+        <tr><td>android:allowBackup</td><td><span class="pill pill-{{ 'danger' if backup_flag else 'ok' }}">{{ 'true' if backup_flag else 'false' }}</span></td></tr>
+        <tr><td>networkSecurityConfig</td><td><span class="pill pill-{{ 'danger' if nsc_missing else 'ok' }}">{{ 'missing' if nsc_missing else 'declared' }}</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <h2>Exported Components ({{ exported_components|length }})</h2>
+    {% if exported_components %}
+    <table class="data-table">
+      <thead><tr><th>Type</th><th>Name</th><th>Protected</th><th>Permission</th><th>Risk</th></tr></thead>
+      <tbody>
+        {% for c in exported_components %}
+        <tr>
+          <td>{{ c.component_type }}</td>
+          <td class="mono">{{ c.component_name }}</td>
+          <td>{{ 'yes' if c.is_protected else 'no' }}</td>
+          <td class="mono">{{ c.permission_attr or '&mdash;' }}</td>
+          <td>{% if c.is_dangerous %}<span class="severity-badge severity-badge-medium">UNPROTECTED</span>{% else %}<span class="pill pill-ok">ok</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No exported components extracted (parser fallback may be in use).</p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h2>Manifest Findings ({{ manifest_findings|length }})</h2>
+    {% if manifest_findings %}
+      {% for finding in manifest_findings %}
+        {% include '_partials/finding_card.html' %}
+      {% endfor %}
+    {% else %}
+    <p class="muted">No findings from manifest analysis.</p>
+    {% endif %}
+  </div>
 </section>
+
+<section class="tab-panel" data-tab-panel="source">
+  <div class="panel">
+    <h2>Source Code Analysis</h2>
+    <p class="muted">Not yet implemented (Phase 3).</p>
+  </div>
+</section>
+
+<section class="tab-panel" data-tab-panel="dynamic">
+  <div class="panel">
+    <h2>Dynamic Analysis</h2>
+    <p class="muted">{% if analysis.dynamic_enabled %}Not yet implemented (Phase 4).{% else %}Dynamic analysis was not enabled for this scan.{% endif %}</p>
+  </div>
+</section>
+
+<section class="tab-panel" data-tab-panel="risk">
+  <div class="panel">
+    <h2>Risk Assessment</h2>
+    <p class="muted">Not yet implemented (Phase 5).</p>
+  </div>
+</section>
+
+<section class="tab-panel" data-tab-panel="permissions">
+  <div class="panel">
+    <h2>Requested Permissions ({{ permissions|length }})</h2>
+    {% if permissions %}
+    <table class="data-table">
+      <thead><tr><th>Permission</th><th>Risk</th><th>Description</th></tr></thead>
+      <tbody>
+        {% for p in permissions %}
+        <tr>
+          <td class="mono">{{ p.permission_name }}</td>
+          <td>{% if p.is_dangerous %}<span class="severity-badge severity-badge-{{ p.severity|lower }}">{{ p.severity }}</span>{% else %}<span class="pill pill-ok">normal</span>{% endif %}</td>
+          <td>{{ p.description or '&mdash;' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No permissions requested (or parser fallback returned none).</p>
+    {% endif %}
+  </div>
+</section>
+
+{% endif %}
 {% endblock %}
 {% block scripts %}
 {% if analysis.status == 'running' %}
 <script>window.SECUREAPK_ANALYSIS_ID = {{ analysis.id|tojson }};</script>
 <script src="{{ url_for('static', filename='js/status_poller.js') }}"></script>
+{% else %}
+<script>
+  document.querySelectorAll('.tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.tab;
+      document.querySelectorAll('.tab').forEach(b => b.classList.toggle('tab-active', b === btn));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('tab-panel-active', p.dataset.tabPanel === target));
+    });
+  });
+</script>
 {% endif %}
 {% endblock %}

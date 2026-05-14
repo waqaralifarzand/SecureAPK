@@ -286,6 +286,93 @@ def get_findings(analysis_id: str) -> list[dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
+# ---------- manifest metadata / permissions / exported components ----------
+
+def save_manifest_metadata(analysis_id: str, manifest: dict[str, Any]) -> None:
+    with _connect() as conn:
+        conn.execute(
+            """
+            UPDATE analyses
+               SET package_name = ?, app_name = ?, version_name = ?, version_code = ?,
+                   target_sdk = ?, min_sdk = ?
+             WHERE id = ?
+            """,
+            (
+                manifest.get("package_name"),
+                manifest.get("app_name"),
+                manifest.get("version_name"),
+                manifest.get("version_code"),
+                manifest.get("target_sdk"),
+                manifest.get("min_sdk"),
+                analysis_id,
+            ),
+        )
+
+
+def save_permissions(analysis_id: str, permissions: Iterable[dict[str, Any]]) -> None:
+    with _connect() as conn:
+        for p in permissions:
+            conn.execute(
+                """
+                INSERT INTO permissions
+                    (analysis_id, permission_name, is_dangerous, severity, description)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    analysis_id,
+                    p["name"],
+                    int(bool(p.get("is_dangerous"))),
+                    p.get("severity"),
+                    p.get("description"),
+                ),
+            )
+
+
+def get_permissions(analysis_id: str) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM permissions WHERE analysis_id = ? ORDER BY is_dangerous DESC, permission_name",
+            (analysis_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def save_exported_components(analysis_id: str, components: Iterable[dict[str, Any]]) -> None:
+    with _connect() as conn:
+        for c in components:
+            conn.execute(
+                """
+                INSERT INTO exported_components
+                    (analysis_id, component_type, component_name, is_protected,
+                     permission_attr, is_dangerous)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    analysis_id,
+                    c.get("type") or c.get("component_type"),
+                    c.get("name") or c.get("component_name"),
+                    int(bool(c.get("is_protected"))),
+                    c.get("permission_attr"),
+                    int(bool(c.get("is_dangerous"))),
+                ),
+            )
+
+
+def get_exported_components(analysis_id: str) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM exported_components WHERE analysis_id = ? ORDER BY component_type, component_name",
+            (analysis_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def set_parser_used(analysis_id: str, parser_used: str) -> None:
+    """Record which manifest parser activated. Stored alongside audit log
+    rather than in analyses (no dedicated column — matches §4 schema as-is)."""
+    add_audit_entry(analysis_id, "manifest_parser", details=parser_used)
+
+
 # ---------- audit log ----------
 
 def add_audit_entry(analysis_id: str, action: str, actor: str = "system", details: str | None = None) -> None:

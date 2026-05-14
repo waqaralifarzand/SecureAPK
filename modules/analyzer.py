@@ -6,10 +6,9 @@ run_analysis() in a daemon thread and never calls phase modules directly.
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass, asdict
 
-from modules import db_manager, forensic
+from modules import db_manager, forensic, manifest_analyzer
 
 
 log = logging.getLogger(__name__)
@@ -41,9 +40,23 @@ def run_analysis(analysis_id: str, apk_path: str, options: AnalysisOptions) -> N
                 details={"sha256": analysis["apk_hash_sha256"]},
             )
 
-        # Placeholder for Phase 2 (Manifest).
+        # Phase 2 — Manifest static analysis.
         db_manager.set_current_phase(analysis_id, 2)
-        log.info("Phase 2 (manifest) not implemented yet for analysis %s", analysis_id)
+        manifest = manifest_analyzer.analyze(apk_path)
+        db_manager.save_manifest_metadata(analysis_id, manifest)
+        db_manager.save_permissions(analysis_id, manifest["permissions"])
+        db_manager.save_exported_components(analysis_id, manifest["exported_components"])
+        db_manager.save_findings(analysis_id, manifest["findings"])
+        db_manager.set_parser_used(analysis_id, manifest["parser_used"])
+        forensic.audit(
+            "phase_2_completed",
+            analysis_id,
+            details={
+                "findings": len(manifest["findings"]),
+                "parser_used": manifest["parser_used"],
+                "dangerous_permissions": sum(1 for p in manifest["permissions"] if p["is_dangerous"]),
+            },
+        )
         db_manager.set_progress(analysis_id, 25)
 
         # Placeholder for Phase 3 (Source).
@@ -71,9 +84,6 @@ def run_analysis(analysis_id: str, apk_path: str, options: AnalysisOptions) -> N
         # Placeholder for Phase 6 (PDF).
         db_manager.set_current_phase(analysis_id, 6)
         log.info("Phase 6 (PDF) not implemented yet for analysis %s", analysis_id)
-
-        # Simulate a small amount of work so polling can observe 'running' state.
-        time.sleep(2)
 
         db_manager.mark_completed(analysis_id)
         forensic.audit("analysis_completed", analysis_id)
