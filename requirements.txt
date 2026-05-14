@@ -1,0 +1,4 @@
+flask>=3.0.0
+werkzeug>=3.0.0
+pyaxmlparser>=0.3.27
+reportlab>=4.0.0
