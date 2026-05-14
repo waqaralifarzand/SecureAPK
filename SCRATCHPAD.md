@@ -16,13 +16,13 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 | 2 — Manifest Analyzer | ✅ Merged | 2026-05-14 | 2026-05-14 | [#2](https://github.com/waqaralifarzand/SecureAPK/pull/2) |
 | 3 — Source Code Analyzer | ✅ Merged | 2026-05-14 | 2026-05-14 | [#3](https://github.com/waqaralifarzand/SecureAPK/pull/3) |
 | 4 — Dynamic Analyzer | ✅ Merged | 2026-05-14 | 2026-05-14 | [#4](https://github.com/waqaralifarzand/SecureAPK/pull/4) |
-| 5 — Risk Engine + OWASP/CWE | 🔄 PR open | 2026-05-14 | 2026-05-14 | _(see entry below)_ |
-| 6 — PDF Reports + Forensic | ⬜ Not started | — | — | — |
+| 5 — Risk Engine + OWASP/CWE | ✅ Merged | 2026-05-14 | 2026-05-14 | [#5](https://github.com/waqaralifarzand/SecureAPK/pull/5) |
+| 6 — PDF Reports + Forensic | 🔄 PR open | 2026-05-14 | 2026-05-14 | _(see entry below)_ |
 | 7 — SBP Banking Compliance | ⬜ Not started | — | — | — |
 | 8 — Educational Mode | ⬜ Not started | — | — | — |
 | 9 — Testing & Polish | ⬜ Not started | — | — | — |
 
-**Running test count:** 26 / 34 target
+**Running test count:** 33 / 34 target
 
 ---
 
@@ -30,7 +30,7 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 
 - **Repo:** https://github.com/waqaralifarzand/SecureAPK
 - **Default branch:** `main`
-- **Active branch:** `phase-5-risk-engine` (Phase 5)
+- **Active branch:** `phase-6-reports-forensic` (Phase 6)
 - **Local dev URL:** http://127.0.0.1:5000 _(when `python app.py` is running)_
 
 ---
@@ -525,7 +525,112 @@ phase, top-5 issues list, OWASP MTW10 table with names, CWE pill list.
 
 ### Phase 6 — PDF Reports + Forensic Hashing
 
-_Not yet started._
+**Branch:** `phase-6-reports-forensic`
+**PR:** _(opened as draft, URL filled in after the PR is created)_
+**Completed:** 2026-05-14
+**Test count after this phase:** 33 / 34
+
+**What was built — the first MobSF differentiator ships:**
+ReportLab Platypus-based PDF generator (`modules/report_generator.py`)
+that produces a forensic-grade security report per ARCHITECTURE.md §11.1.
+Cover page embeds the APK SHA-256 (in monospace, accent colour) along
+with started/completed timestamps and tool version. Subsequent sections:
+risk summary with colour-coded classification banner + score-breakdown
+table + top-5 issues; manifest section with metadata / dangerous perms /
+exported components / findings; source-code section grouped by category;
+optional dynamic section (only when `dynamic_enabled`); OWASP MTW10 +
+CWE summary; **audit-log appendix** — the chain-of-custody section.
+
+`forensic.py` extended with `get_chain_of_custody(analysis_id)` and
+`format_audit_for_pdf(entries)` helpers so the report module imports the
+chain-of-custody contract from a single place. `db_manager.set_pdf_path`
+persists the output path on the `analyses` row; orchestrator runs Phase 6
+*after* `mark_completed` so the PDF embeds the final completed_at
+timestamp, then audits `phase_6_completed`. Result page header gets a
+prominent "Download PDF Report" button when `analysis.pdf_path` is set;
+existing `/analysis/<id>/report.pdf` route now serves with a
+human-friendly filename (`secureapk_<pkg>_<id8>.pdf`).
+
+**Forensic guarantees verified:**
+- **APK SHA-256 appears as plain text in the PDF body.** `pageCompression=0`
+  keeps the content stream uncompressed, so a forensic examiner can
+  `grep` the hash without unpacking the PDF. `test_cover_page_contains_apk_hash`
+  asserts `sha.encode() in blob`.
+- **Audit-log appendix chronological.** Pulled via
+  `forensic.get_chain_of_custody`, which is the existing
+  `db_manager.get_audit_log` ordered by `(timestamp, id)`.
+- **Reproducible byte-identical output.** Two back-to-back
+  `report_generator.generate(aid)` calls on a completed analysis produce
+  identical PDFs — `invariant=True` freezes `/CreationDate`, `/ModDate`,
+  `/ID`, and the deterministic finding-sort keys (severity DESC, category,
+  title) keep the body stable. `test_regeneration_is_byte_identical`
+  enforces this.
+- **Hash round-trips.** `forensic.compute_sha256` matches
+  `hashlib.sha256(open(...).read()).hexdigest()` exactly — `test_compute_sha256_matches_hashlib_sha256`.
+
+**Verified working:**
+- `python -m pytest tests/ -v` → **33 passed** (3 db + 6 manifest + 8 source + 5 dynamic + 4 risk + 3 forensic + 4 report)
+- End-to-end smoke: orchestrator runs all phases, PDF lands at
+  `reports/<aid>.pdf` (~17 KB on synthetic APK with 3 findings), `GET
+  /analysis/<aid>/report.pdf` returns 200 with `Content-Type:
+  application/pdf` and the friendly download filename
+- APK hash matches what's stored on the analyses row and what's
+  embedded in the PDF body
+- Download button on result page renders only when
+  `analysis.status == 'completed' and analysis.pdf_path`
+
+**Smoke test PDF metrics:**
+- Synthetic APK (com.demo.app, 3 findings): PDF size **17,095 bytes**
+- Audit log entries on the same run: **11** (analysis_started,
+  hash_verified, manifest_parser, phase_2_completed, source_decompiler,
+  phase_3_completed, phase_5_completed, phase_6_completed,
+  analysis_completed × 2-ish — orchestrator-stamp order)
+- Re-generation of the same analysis: byte-identical (17,095 bytes,
+  asserted equal in the determinism test)
+
+**Pending / deferred:**
+- SBP section in PDF — Phase 7 will add a conditional section when
+  `sbp_enabled` and SBP findings exist
+- Educational-mode expansion content — Phase 8 will inject `remediation`
+  snippets per finding when `educational_enabled`
+- A real DIVA/InsecureShop APK PDF render — env has neither Jadx nor an
+  emulator; synthetic smoke covered the structural correctness.
+  Phase 9 will validate against the real corpus.
+
+**Known issues:**
+- The audit log appendix table uses fixed column widths
+  (5cm/5cm/7cm). On runs with a lot of audit entries the row count can
+  exceed one page; ReportLab Platypus splits the table automatically
+  via `Table(..., repeatRows=1)`. Header re-renders on each page.
+- "Anonymous Analyst" is hardcoded as the analyst label per
+  ARCHITECTURE.md §11.1 — no UI to edit yet. Phase 9 polish could add
+  a form field.
+
+**Mid-execution decisions:**
+- D-13: PDF is generated *after* `mark_completed` (not the other way
+  around). This way the PDF cover embeds the real `completed_at`
+  timestamp instead of NULL. The trade-off: if PDF generation fails the
+  analysis is still marked completed — but with no `pdf_path`. The
+  orchestrator's `phase_6_failed` audit row captures the error
+  ("analysis usable, report missing" — better than "no analysis at all
+  because of a PDF bug").
+- D-14: `pageCompression=0` chosen for grep-ability *and* deterministic
+  bytes — zlib compression introduces non-determinism that defeats
+  byte-identical regeneration. Trade-off: PDF size grows ~3-4x. Worth it
+  for forensic transparency and reproducibility; viva audience can open
+  the PDF in a hex editor and *see* the embedded hash.
+- D-15: `invariant=True` passed to ReportLab so `/CreationDate`,
+  `/ModDate`, and the document `/ID` are frozen rather than stamped
+  from system time. Without this, even with identical content streams
+  the PDF metadata header would change every run.
+- D-16: Finding-sort key `(phase, severity_rank, category, title)` -
+  uses the same severity rank as `risk_engine` (HIGH=0, MEDIUM=1, LOW=2)
+  so HIGH findings come first within their phase. Deterministic AND
+  reader-friendly.
+
+**Files touched:** 3 added, 6 modified.
+
+**Next session picks up at:** Phase 7 — SBP Banking Compliance (Feature 2).
 
 ### Phase 7 — SBP Banking Compliance
 
@@ -678,6 +783,57 @@ and `compute_from_findings(findings)` (pure function over a list).
 recomputation from already-loaded findings; tests want pure functions
 without DB plumbing. Three callers, three needs, one shared core.
 **Reversible?** Trivially — collapse into one function with an optional arg.
+
+### D-13: PDF generated AFTER mark_completed, failures don't fail the analysis
+**Made in:** Phase 6
+**Date:** 2026-05-14
+**Decision:** The orchestrator calls `db_manager.mark_completed(aid)` BEFORE
+`report_generator.generate(aid)`. PDF generation runs in its own try/except;
+on failure, `phase_6_failed` is audited but the analysis status remains
+`completed` (with `pdf_path=NULL`).
+**Reasoning:** A PDF rendering bug should not invalidate a successful
+analysis. The user can still see the result page with full findings;
+they just can't download a PDF until the bug is fixed. Also, generating
+the PDF after `mark_completed` lets the cover page embed the final
+`completed_at` timestamp rather than NULL.
+**Reversible?** Easy — swap the two calls if Phase 9 wants a different policy.
+
+### D-14: pageCompression=0 (uncompressed PDF streams)
+**Made in:** Phase 6
+**Date:** 2026-05-14
+**Decision:** `SimpleDocTemplate(..., pageCompression=0)`.
+**Reasoning:** Two benefits, one cost. Benefit 1: the APK SHA-256 (and
+every other report string) appears as plain text in the raw PDF bytes,
+so forensic examiners can `grep` the file without parsing it. Benefit 2:
+zlib compression isn't byte-deterministic, so disabling it is what makes
+back-to-back regenerations byte-identical. Cost: PDF files are ~3-4×
+larger (17 KB instead of ~5 KB on the smoke APK). Worth it.
+**Reversible?** Easy — re-enable compression when forensic transparency
+isn't required.
+
+### D-15: invariant=True (frozen PDF metadata)
+**Made in:** Phase 6
+**Date:** 2026-05-14
+**Decision:** Pass `invariant=True` through to ReportLab so
+`/CreationDate`, `/ModDate`, and the document `/ID` are frozen.
+**Reasoning:** Without it, even identical content streams produce
+different PDF bytes because the trailer metadata is timestamped from the
+system clock. With `invariant=True` + `pageCompression=0` + deterministic
+finding sort, byte-identical regeneration is achievable.
+**Reversible?** Easy — drop the kwarg.
+
+### D-16: Finding-sort key is (phase, severity_rank, category, title)
+**Made in:** Phase 6
+**Date:** 2026-05-14
+**Decision:** PDF findings are sorted by `(phase, severity_rank,
+category, title)` before rendering, where `severity_rank` matches the
+risk engine's ordering (HIGH=0, MEDIUM=1, LOW=2).
+**Reasoning:** Two needs at once. Determinism: the DB's `ORDER BY phase,
+severity` is alphabetical (HIGH < LOW < MEDIUM) — not what a reader
+wants. Reader-friendliness: HIGH findings appear before MEDIUM appear
+before LOW within each phase. Same rank used elsewhere keeps the report
+and result page in agreement.
+**Reversible?** Easy — change `_SEVERITY_RANK`.
 
 ### D-12: OWASP aggregation falls back to category mapping
 **Made in:** Phase 5

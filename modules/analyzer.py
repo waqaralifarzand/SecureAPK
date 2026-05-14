@@ -9,8 +9,8 @@ import logging
 from dataclasses import dataclass, asdict
 
 from modules import (
-    db_manager, dynamic_analyzer, forensic, manifest_analyzer, risk_engine,
-    source_analyzer,
+    db_manager, dynamic_analyzer, forensic, manifest_analyzer,
+    report_generator, risk_engine, source_analyzer,
 )
 
 
@@ -123,11 +123,22 @@ def run_analysis(analysis_id: str, apk_path: str, options: AnalysisOptions) -> N
         )
         db_manager.set_progress(analysis_id, 90)
 
-        # Placeholder for Phase 6 (PDF).
-        db_manager.set_current_phase(analysis_id, 6)
-        log.info("Phase 6 (PDF) not implemented yet for analysis %s", analysis_id)
-
+        # Mark completion BEFORE Phase 6 so the PDF embeds the final
+        # completed_at timestamp on its cover. The audit entry for
+        # "analysis_completed" is still appended after report generation.
         db_manager.mark_completed(analysis_id)
+
+        # Phase 6 — Forensic-grade PDF report.
+        db_manager.set_current_phase(analysis_id, 6)
+        try:
+            pdf_path = report_generator.generate(analysis_id)
+            db_manager.set_pdf_path(analysis_id, pdf_path)
+            forensic.audit("phase_6_completed", analysis_id,
+                            details={"pdf": pdf_path})
+        except Exception as e:  # noqa: BLE001 - PDF failure must not nuke the analysis
+            log.exception("PDF generation failed for analysis %s", analysis_id)
+            forensic.audit("phase_6_failed", analysis_id, details={"error": str(e)})
+
         forensic.audit("analysis_completed", analysis_id)
 
     except Exception as e:  # never silently swallow

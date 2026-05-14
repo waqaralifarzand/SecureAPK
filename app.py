@@ -134,7 +134,17 @@ def download_report(analysis_id: str):
     analysis = db_manager.get_analysis(analysis_id)
     if not analysis or not analysis.get("pdf_path"):
         abort(404)
-    return send_file(analysis["pdf_path"], mimetype="application/pdf", as_attachment=True)
+    pdf_path = analysis["pdf_path"]
+    if not Path(pdf_path).exists():
+        abort(404)
+    pkg = (analysis.get("package_name") or "report").replace("/", "_")
+    download_name = f"secureapk_{pkg}_{analysis_id[:8]}.pdf"
+    return send_file(
+        pdf_path,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=download_name,
+    )
 
 
 @app.route("/dashboard")

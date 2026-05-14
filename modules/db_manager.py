@@ -417,6 +417,13 @@ def save_risk(analysis_id: str, risk: dict[str, Any]) -> None:
         )
 
 
+def set_pdf_path(analysis_id: str, pdf_path: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE analyses SET pdf_path = ? WHERE id = ?", (pdf_path, analysis_id),
+        )
+
+
 # ---------- audit log ----------
 
 def add_audit_entry(analysis_id: str, action: str, actor: str = "system", details: str | None = None) -> None:

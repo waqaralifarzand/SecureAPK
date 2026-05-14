@@ -134,6 +134,12 @@
   flex-wrap: wrap;
 }
 .result-title-row h1 { margin: 0; }
+.title-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 .risk-score {
   font-weight: 500;
   margin-left: 8px;

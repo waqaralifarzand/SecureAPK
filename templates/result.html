@@ -7,11 +7,19 @@
 <section class="result-header">
   <div class="result-title-row">
     <h1>{{ analysis.app_name or analysis.apk_filename }}</h1>
-    {% if analysis.status == 'completed' and analysis.risk_classification %}
-      {% set classification = analysis.risk_classification %}
-      {% set score = analysis.risk_score %}
-      {% include '_partials/risk_badge.html' %}
-    {% endif %}
+    <div class="title-actions">
+      {% if analysis.status == 'completed' and analysis.risk_classification %}
+        {% set classification = analysis.risk_classification %}
+        {% set score = analysis.risk_score %}
+        {% include '_partials/risk_badge.html' %}
+      {% endif %}
+      {% if analysis.status == 'completed' and analysis.pdf_path %}
+        <a class="btn btn-primary btn-sm"
+           href="{{ url_for('download_report', analysis_id=analysis.id) }}">
+          &#8595; Download PDF Report
+        </a>
+      {% endif %}
+    </div>
   </div>
   <dl class="meta-grid">
     <dt>Analysis ID</dt><dd class="mono">{{ analysis.id }}</dd>
