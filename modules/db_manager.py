@@ -1,0 +1,304 @@
+"""Centralised SQLite access for SecureAPK. No raw SQL outside this module."""
+from __future__ import annotations
+
+import sqlite3
+import uuid
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterable
+
+import config
+
+
+SCHEMA = [
+    """
+    CREATE TABLE IF NOT EXISTS analyses (
+        id                     TEXT PRIMARY KEY,
+        apk_filename           TEXT NOT NULL,
+        apk_path               TEXT NOT NULL,
+        apk_hash_sha256        TEXT NOT NULL,
+        apk_size_bytes         INTEGER NOT NULL,
+        package_name           TEXT,
+        app_name               TEXT,
+        version_name           TEXT,
+        version_code           INTEGER,
+        target_sdk             INTEGER,
+        min_sdk                INTEGER,
+        started_at             TIMESTAMP NOT NULL,
+        completed_at           TIMESTAMP,
+        status                 TEXT NOT NULL,
+        current_phase          INTEGER,
+        progress_pct           INTEGER DEFAULT 0,
+        error_message          TEXT,
+        dynamic_enabled        BOOLEAN NOT NULL,
+        sbp_enabled            BOOLEAN NOT NULL,
+        educational_enabled    BOOLEAN NOT NULL,
+        risk_score             INTEGER,
+        risk_classification    TEXT,
+        pdf_path               TEXT,
+        tool_version           TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_analyses_started_at ON analyses(started_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_analyses_status ON analyses(status)",
+    """
+    CREATE TABLE IF NOT EXISTS findings (
+        id              TEXT PRIMARY KEY,
+        analysis_id     TEXT NOT NULL,
+        phase           INTEGER NOT NULL,
+        category        TEXT NOT NULL,
+        severity        TEXT NOT NULL,
+        title           TEXT NOT NULL,
+        description     TEXT NOT NULL,
+        file_location   TEXT,
+        line_number     INTEGER,
+        code_snippet    TEXT,
+        owasp_id        TEXT,
+        cwe_id          TEXT,
+        pattern_id      TEXT,
+        created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (analysis_id) REFERENCES analyses(id) ON DELETE CASCADE
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_findings_analysis ON findings(analysis_id)",
+    "CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(analysis_id, severity)",
+    """
+    CREATE TABLE IF NOT EXISTS permissions (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        analysis_id     TEXT NOT NULL,
+        permission_name TEXT NOT NULL,
+        is_dangerous    BOOLEAN NOT NULL,
+        severity        TEXT,
+        description     TEXT,
+        FOREIGN KEY (analysis_id) REFERENCES analyses(id) ON DELETE CASCADE
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_permissions_analysis ON permissions(analysis_id)",
+    """
+    CREATE TABLE IF NOT EXISTS exported_components (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        analysis_id     TEXT NOT NULL,
+        component_type  TEXT NOT NULL,
+        component_name  TEXT NOT NULL,
+        is_protected    BOOLEAN NOT NULL,
+        permission_attr TEXT,
+        is_dangerous    BOOLEAN NOT NULL,
+        FOREIGN KEY (analysis_id) REFERENCES analyses(id) ON DELETE CASCADE
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_exported_analysis ON exported_components(analysis_id)",
+    """
+    CREATE TABLE IF NOT EXISTS runtime_events (
+        id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+        analysis_id          TEXT NOT NULL,
+        event_category       TEXT NOT NULL,
+        event_subtype        TEXT,
+        log_line             TEXT,
+        timestamp_in_session INTEGER,
+        severity             TEXT NOT NULL,
+        FOREIGN KEY (analysis_id) REFERENCES analyses(id) ON DELETE CASCADE
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_runtime_analysis ON runtime_events(analysis_id)",
+    """
+    CREATE TABLE IF NOT EXISTS sbp_findings (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        analysis_id         TEXT NOT NULL,
+        sbp_rule_id         TEXT NOT NULL,
+        rule_name           TEXT NOT NULL,
+        compliance_status   TEXT NOT NULL,
+        severity            TEXT,
+        evidence            TEXT,
+        FOREIGN KEY (analysis_id) REFERENCES analyses(id) ON DELETE CASCADE
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_sbp_analysis ON sbp_findings(analysis_id)",
+    """
+    CREATE TABLE IF NOT EXISTS audit_log (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        analysis_id     TEXT NOT NULL,
+        action          TEXT NOT NULL,
+        actor           TEXT NOT NULL DEFAULT 'system',
+        timestamp       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        details         TEXT,
+        FOREIGN KEY (analysis_id) REFERENCES analyses(id) ON DELETE CASCADE
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_audit_analysis ON audit_log(analysis_id, timestamp)",
+]
+
+
+_DB_PATH_OVERRIDE: Path | None = None
+
+
+def set_db_path(path: Path | str | None) -> None:
+    """Test hook: override the database path. Pass None to reset."""
+    global _DB_PATH_OVERRIDE
+    _DB_PATH_OVERRIDE = Path(path) if path is not None else None
+
+
+def _db_path() -> Path:
+    return _DB_PATH_OVERRIDE if _DB_PATH_OVERRIDE is not None else config.DATABASE_PATH
+
+
+@contextmanager
+def _connect():
+    path = _db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(
+        str(path),
+        isolation_level=None,  # autocommit
+    )
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def init_db() -> None:
+    """Create all tables and indexes if they don't exist."""
+    with _connect() as conn:
+        for stmt in SCHEMA:
+            conn.execute(stmt)
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+# ---------- analyses ----------
+
+def create_analysis(
+    apk_filename: str,
+    apk_path: str,
+    apk_hash_sha256: str,
+    apk_size_bytes: int,
+    dynamic_enabled: bool,
+    sbp_enabled: bool,
+    educational_enabled: bool,
+    tool_version: str,
+) -> str:
+    analysis_id = uuid.uuid4().hex
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO analyses (
+                id, apk_filename, apk_path, apk_hash_sha256, apk_size_bytes,
+                started_at, status, progress_pct,
+                dynamic_enabled, sbp_enabled, educational_enabled, tool_version
+            ) VALUES (?, ?, ?, ?, ?, ?, 'running', 0, ?, ?, ?, ?)
+            """,
+            (
+                analysis_id, apk_filename, apk_path, apk_hash_sha256, apk_size_bytes,
+                _now(), int(dynamic_enabled), int(sbp_enabled), int(educational_enabled),
+                tool_version,
+            ),
+        )
+    return analysis_id
+
+
+def get_analysis(analysis_id: str) -> dict[str, Any] | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM analyses WHERE id = ?", (analysis_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def list_analyses() -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM analyses ORDER BY started_at DESC").fetchall()
+        return [dict(r) for r in rows]
+
+
+def set_current_phase(analysis_id: str, phase: int) -> None:
+    with _connect() as conn:
+        conn.execute("UPDATE analyses SET current_phase = ? WHERE id = ?", (phase, analysis_id))
+
+
+def set_progress(analysis_id: str, pct: int) -> None:
+    with _connect() as conn:
+        conn.execute("UPDATE analyses SET progress_pct = ? WHERE id = ?", (pct, analysis_id))
+
+
+def mark_completed(analysis_id: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE analyses SET status = 'completed', completed_at = ?, progress_pct = 100, current_phase = NULL WHERE id = ?",
+            (_now(), analysis_id),
+        )
+
+
+def mark_failed(analysis_id: str, error_message: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE analyses SET status = 'failed', completed_at = ?, error_message = ? WHERE id = ?",
+            (_now(), error_message, analysis_id),
+        )
+
+
+def set_apk_path(analysis_id: str, apk_path: str) -> None:
+    with _connect() as conn:
+        conn.execute("UPDATE analyses SET apk_path = ? WHERE id = ?", (apk_path, analysis_id))
+
+
+def delete_analysis(analysis_id: str) -> None:
+    with _connect() as conn:
+        conn.execute("DELETE FROM analyses WHERE id = ?", (analysis_id,))
+
+
+# ---------- findings ----------
+
+def save_findings(analysis_id: str, findings: Iterable[dict[str, Any]]) -> None:
+    with _connect() as conn:
+        for f in findings:
+            conn.execute(
+                """
+                INSERT INTO findings (
+                    id, analysis_id, phase, category, severity, title, description,
+                    file_location, line_number, code_snippet, owasp_id, cwe_id, pattern_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f.get("id") or uuid.uuid4().hex,
+                    analysis_id,
+                    f["phase"],
+                    f["category"],
+                    f["severity"],
+                    f["title"],
+                    f["description"],
+                    f.get("file_location"),
+                    f.get("line_number"),
+                    f.get("code_snippet"),
+                    f.get("owasp_id"),
+                    f.get("cwe_id"),
+                    f.get("pattern_id"),
+                ),
+            )
+
+
+def get_findings(analysis_id: str) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM findings WHERE analysis_id = ? ORDER BY phase, severity", (analysis_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ---------- audit log ----------
+
+def add_audit_entry(analysis_id: str, action: str, actor: str = "system", details: str | None = None) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO audit_log (analysis_id, action, actor, details) VALUES (?, ?, ?, ?)",
+            (analysis_id, action, actor, details),
+        )
+
+
+def get_audit_log(analysis_id: str) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM audit_log WHERE analysis_id = ? ORDER BY timestamp, id", (analysis_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]

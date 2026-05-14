@@ -12,7 +12,7 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 
 | Phase | Status | Started | Completed | PR |
 |---|---|---|---|---|
-| 1 — Foundation | ⬜ Not started | — | — | — |
+| 1 — Foundation | 🔄 PR open | 2026-05-14 | 2026-05-14 | _(see entry below)_ |
 | 2 — Manifest Analyzer | ⬜ Not started | — | — | — |
 | 3 — Source Code Analyzer | ⬜ Not started | — | — | — |
 | 4 — Dynamic Analyzer | ⬜ Not started | — | — | — |
@@ -22,7 +22,7 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 | 8 — Educational Mode | ⬜ Not started | — | — | — |
 | 9 — Testing & Polish | ⬜ Not started | — | — | — |
 
-**Running test count:** 0 / 34 target
+**Running test count:** 3 / 34 target
 
 ---
 
@@ -30,7 +30,7 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 
 - **Repo:** https://github.com/waqaralifarzand/SecureAPK
 - **Default branch:** `main`
-- **Active branch:** _(set this when a phase session opens)_
+- **Active branch:** `phase-1-foundation`
 - **Local dev URL:** http://127.0.0.1:5000 _(when `python app.py` is running)_
 
 ---
@@ -124,7 +124,67 @@ _Append entries below as phases complete. Do not delete or rewrite earlier entri
 
 ### Phase 1 — Foundation
 
-_Not yet started._
+**Branch:** `phase-1-foundation`
+**PR:** [#1](https://github.com/waqaralifarzand/SecureAPK/pull/1)
+**Completed:** 2026-05-14
+**Test count after this phase:** 3 / 34
+
+**What was built:**
+Bootable Flask app with the full HTTP surface from ARCHITECTURE.md §3 (all 9
+routes), a centralised `db_manager` that owns the 7-table SQLite schema
+verbatim from §4, a placeholder orchestrator `modules/analyzer.py` that runs
+in a daemon thread and sleeps ~2s before marking the analysis `completed`,
+upload flow that streams the APK to disk, SHA-256-hashes it, and stores the
+row, plus dark-themed templates wired to the exact colour tokens from
+CLAUDE.md §5. No real analyser logic ships in this phase — Phases 2-8 add it.
+
+**Verified working:**
+- `python setup.py` exits 0 on a clean checkout (Python OK, DB created, dirs
+  created, Jadx/ADB/emulator probes report missing without failing)
+- `python app.py` boots on `127.0.0.1:5000` (HTTP 200 on `/`)
+- `/` renders the dark-themed upload page with the three option toggles
+- POST `/upload` with a `.apk` file: 302 redirect to `/analysis/<id>`,
+  row created in `analyses`, APK saved to `uploads/<analysis_id>.apk`,
+  SHA-256 stored — verified that the stored hash equals
+  `sha256sum` output for the same file
+  (`3397c974d03bf0c5babd252159f365d1badf172ac8555e3fa8196ceb04de0a37`)
+- `/analysis/<id>` renders the "Analysis pending — analyzers not yet
+  implemented" panel with the APK hash visible, and the page polls
+  `/api/analysis/<id>/status` every 2 seconds via `status_poller.js`
+- Placeholder orchestrator flips status to `completed` after ~2 seconds;
+  `/api/analysis/<id>/status` reflects this and the page reloads
+- `/dashboard` lists the analysis; POST `/analysis/<id>/delete` cascades —
+  child rows (findings, audit_log) all gone after delete (FK ON DELETE
+  CASCADE + `PRAGMA foreign_keys=ON`)
+- `/health` returns valid JSON with all four boolean flags
+  (`python_ok`, `jadx_ok`, `adb_ok`, `emulator_ok`)
+- `pytest tests/test_db_manager.py -v` → 3 passed
+
+**Pending / deferred:**
+- All real analysis logic (Phases 2-8). The orchestrator currently iterates
+  through every phase number, logs "not implemented", and bumps progress.
+- `modules/patterns/` directory is empty but present, ready for Phase 2.
+
+**Known issues:**
+- None observed.
+
+**Mid-execution decisions:**
+- Used `uuid.uuid4().hex` (no dashes) for `analysis_id` to keep URLs and
+  filenames clean.
+- Dropped `sqlite3.PARSE_DECLTYPES` from the connection — Python 3.12+
+  deprecated the default `TIMESTAMP` converter and stricter splitting on
+  ISO-format strings fails. Timestamps are stored and read as plain ISO
+  strings instead; this is simpler and removes a deprecation footgun.
+- Added `db_manager.set_apk_path()` rather than letting `app.py` issue raw
+  SQL, preserving the "no raw SQL outside db_manager" rule.
+- Saved uploads under a temporary name then renamed to
+  `<analysis_id>.apk` after the DB row is created — keeps filenames aligned
+  with analysis IDs for chain-of-custody traceability.
+
+**Files touched:** 25 added, planning .md files renamed (removed " (2)"
+suffixes), 14 legacy files deleted per task description.
+
+**Next session picks up at:** Phase 2 — Manifest Analyzer.
 
 ### Phase 2 — Manifest Analyzer
 

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Analysis {{ analysis.id[:8] }} &mdash; SecureAPK{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/result.css') }}">
+{% endblock %}
+{% block content %}
+<section class="result-header">
+  <h1>Analysis</h1>
+  <dl class="meta-grid">
+    <dt>Analysis ID</dt><dd class="mono">{{ analysis.id }}</dd>
+    <dt>APK</dt><dd>{{ analysis.apk_filename }} ({{ analysis.apk_size_bytes }} bytes)</dd>
+    <dt>SHA-256</dt><dd class="mono hash">{{ analysis.apk_hash_sha256 }}</dd>
+    <dt>Status</dt><dd><span id="status-pill" class="pill pill-{{ analysis.status }}">{{ analysis.status }}</span></dd>
+    <dt>Started</dt><dd>{{ analysis.started_at }}</dd>
+  </dl>
+</section>
+
+{% if analysis.status == 'running' %}
+<section class="panel">
+  <h2>Analysis pending &mdash; analyzers not yet implemented</h2>
+  <p class="muted">The placeholder orchestrator is running. This page polls
+  <code>/api/analysis/{{ analysis.id }}/status</code> every 2 seconds and refreshes
+  when the analysis completes.</p>
+  <div class="progress"><div class="progress-bar" id="progress-bar" style="width: {{ analysis.progress_pct }}%"></div></div>
+  <p class="muted">Current phase: <span id="current-phase">{{ analysis.current_phase or '-' }}</span></p>
+</section>
+{% elif analysis.status == 'failed' %}
+<section class="panel panel-error">
+  <h2>Analysis failed</h2>
+  <p>{{ analysis.error_message or 'Unknown error.' }}</p>
+</section>
+{% else %}
+<section class="panel">
+  <h2>No findings</h2>
+  <p class="muted">Analyzers are not yet implemented (Phase 1 placeholder). Real
+  static and dynamic analysis arrive in Phases 2-4.</p>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h3>Audit trail</h3>
+  <p class="muted">Chain-of-custody records are written for every state change in this analysis.</p>
+</section>
+{% endblock %}
+{% block scripts %}
+{% if analysis.status == 'running' %}
+<script>window.SECUREAPK_ANALYSIS_ID = {{ analysis.id|tojson }};</script>
+<script src="{{ url_for('static', filename='js/status_poller.js') }}"></script>
+{% endif %}
+{% endblock %}

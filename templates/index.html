@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}SecureAPK &mdash; Upload{% endblock %}
+{% block content %}
+<section class="upload-section">
+  <h1>Upload an APK for analysis</h1>
+  <p class="muted">Static + dynamic Android security analysis. Local only.</p>
+
+  {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+  {% endif %}
+
+  <form class="upload-form" method="POST" action="{{ url_for('upload') }}" enctype="multipart/form-data">
+    <label class="dropzone" id="dropzone" for="apk_file">
+      <span class="dropzone-label">Drop a .apk file here or click to select</span>
+      <span class="dropzone-file" id="dropzone-file"></span>
+      <input type="file" id="apk_file" name="apk_file" accept=".apk" required hidden>
+    </label>
+
+    <fieldset class="options">
+      <legend>Analysis options</legend>
+      <label><input type="checkbox" name="dynamic_enabled" value="1"> Enable Dynamic Analysis (requires emulator)</label>
+      <label><input type="checkbox" name="sbp_enabled" value="1"> Enable SBP Banking Compliance Check</label>
+      <label><input type="checkbox" name="educational_enabled" value="1"> Enable Educational Mode</label>
+    </fieldset>
+
+    <button type="submit" class="btn btn-primary">Start Analysis</button>
+  </form>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% endblock %}
