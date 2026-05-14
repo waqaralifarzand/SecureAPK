@@ -125,7 +125,7 @@ _Append entries below as phases complete. Do not delete or rewrite earlier entri
 ### Phase 1 — Foundation
 
 **Branch:** `phase-1-foundation`
-**PR:** _(opened from `phase-1-foundation` → `main`; URL added after push)_
+**PR:** [#1](https://github.com/waqaralifarzand/SecureAPK/pull/1)
 **Completed:** 2026-05-14
 **Test count after this phase:** 3 / 34
 
