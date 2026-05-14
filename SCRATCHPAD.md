@@ -742,7 +742,7 @@ understand the join.
 ### Phase 8 — Educational Mode
 
 **Branch:** `phase-8-educational-mode`
-**PR:** _(opened as draft, URL filled in after the PR is created)_
+**PR:** [#8](https://github.com/waqaralifarzand/SecureAPK/pull/8) (draft)
 **Completed:** 2026-05-14
 **Test count after this phase:** 39 / 34
 
