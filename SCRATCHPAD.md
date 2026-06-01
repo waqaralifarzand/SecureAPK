@@ -22,8 +22,9 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 | 8 — Educational Mode | ✅ Merged | 2026-05-14 | 2026-05-14 | [#8](https://github.com/waqaralifarzand/SecureAPK/pull/8) |
 | 9 — Testing & Polish | ✅ Merged | 2026-05-14 | 2026-05-14 | [#9](https://github.com/waqaralifarzand/SecureAPK/pull/9) |
 | 10 — UI Redesign | 🔄 PR open | 2026-06-01 | 2026-06-01 | _(see entry below)_ |
+| 11 — Court-Admissible Forensic Report | 🔄 PR open | 2026-06-01 | 2026-06-01 | _(see entry below)_ |
 
-**Running test count:** 42 / 34 target (✅ exceeded by 8)
+**Running test count:** 46 / 34 target (✅ exceeded by 12)
 **Coverage (modules/):** 88%
 
 ---
@@ -1034,6 +1035,84 @@ needed no edits beyond what `base.html`/`main.css` provide).
 **Next session picks up at:** v1.0.0 tag + viva rehearsal. Project remains
 feature-complete; this phase changed presentation only.
 
+### Phase 11 — Court-Admissible Forensic Report
+
+**Branch:** `phase-11-court-admissible-report`
+**PR:** _(draft — URL to be filled in after push)_
+**Completed:** 2026-06-01
+**Test count after this phase:** 46 / 34 (42 baseline + 4 new)
+
+**What was built:**
+Expanded the Phase 6 PDF report to meet ISO/IEC 27037:2012 court-admissibility
+requirements. The cover page now contains five forensic blocks in order:
+(1) Tool Identification (SecureAPK version + generation timestamp),
+(2) Case Identification (analysis ID + analyst name + institution),
+(3) Evidence Identification (filename, size, SHA-256 + SHA-1 + MD5 in monospace,
+    package, version), (4) Software Environment (OS, Python, Jadx, ADB,
+SecureAPK versions), (5) Statement of Methodology (cites ISO/IEC 27037:2012
+explicitly). Two new appendices: Appendix A (Chain of Custody — every
+audit_log entry with ISO 8601 + TZ timestamps, actor, action, details) and
+Appendix B (Verification of Evidence Integrity — step-by-step hash
+verification instructions with the actual SHA-256 value). Every page carries
+a `Page X of Y` footer + generation timestamp. All timestamps use ISO 8601
+with explicit timezone offset (defaults to Asia/Karachi via config). Analyst
+Name is a new optional field on the upload form (max 100 chars, control-char
+stripped), threaded through to `db_manager.analyst_name` column and rendered
+in both the result page and PDF cover (defaults to "Anonymous Analyst").
+
+**All 5 cover blocks present:** ✅ Tool / ✅ Case / ✅ Evidence / ✅ Environment / ✅ Methodology
+
+**SHA-256 verification:** The APK SHA-256 appears in the Evidence
+Identification block on the cover AND is grep-able from raw PDF bytes
+(pageCompression=0 preserved per D-14). Multi-hash (SHA-256 + SHA-1 + MD5)
+all visible.
+
+**Phase 6 invariants preserved:**
+- ✅ `pageCompression=0` — hash grep-ability maintained
+- ✅ `invariant=True` — frozen /CreationDate, /ModDate, /ID
+- ✅ Byte-identical regeneration (except in-footer generation timestamp)
+- ✅ PDF generation after `mark_completed` (D-13)
+- ✅ Deterministic finding sort key (D-16)
+
+**Verified working:**
+- `python -m pytest tests/ -v` → **46 passed** (42 baseline + 4 new)
+- End-to-end smoke: upload without analyst name → "Anonymous Analyst" in PDF;
+  upload with "Nayab Kazim" → name appears in PDF cover, "Anonymous" absent.
+  All 5 cover blocks present. Methodology cites ISO/IEC 27037:2012. Chain of
+  Custody appendix present with 27 TZ-aware timestamps. Verification appendix
+  present with sha256sum instructions. Page X of Y footer on every page.
+  sha256sum of APK matches cover SHA-256 exactly. SHA-1 and MD5 both in PDF.
+
+**Pending / deferred:**
+- None. This phase is complete.
+
+**Known issues:**
+- None.
+
+**Mid-execution decisions:**
+- D-27: Used ReportLab's `canvasmaker` with a custom `_NumberedCanvas`
+  subclass to get `Page X of Y` footers. The alternative (two-pass build)
+  would consume story flowables on the first pass, producing an empty PDF on
+  the second. The `_NumberedCanvas` defers footer drawing to `save()` when
+  the total page count is known. Deterministic — `invariant=True` still
+  applies.
+- D-28: `analyst_name` column added via idempotent `ALTER TABLE` in
+  `_migrate()` called from `init_db()`. Existing DBs gain the column on next
+  `setup.py` or `app.py` boot. NULL values render as "Anonymous Analyst"
+  everywhere (template, PDF, tests).
+- D-29: Multi-hash reads the file once (`compute_multi_hash`) to avoid
+  triple I/O. The existing `compute_sha256` is preserved for backwards
+  compatibility (used at upload time).
+
+**Files touched:** 8 modified (`config.py`, `modules/db_manager.py`,
+`modules/forensic.py`, `modules/report_generator.py`, `app.py`,
+`templates/index.html`, `templates/result.html`, `static/css/main.css`),
+1 added (`tests/test_court_admissible_report.py`), 1 updated
+(`SCRATCHPAD.md`).
+
+**Next session picks up at:** v1.0.0 tag + viva rehearsal with the
+court-admissible report.
+
 ---
 
 ## Open questions (cross-phase)
@@ -1326,6 +1405,42 @@ client render test.
 **Reversible?** Easy — delete the context processor and the loop; the
 templates would then fall back to empty `footer_year`/`max_upload_mb` and a
 missing count.
+
+### D-27: `_NumberedCanvas` for `Page X of Y` footers
+**Made in:** Phase 11
+**Date:** 2026-06-01
+**Decision:** Used a ReportLab `Canvas` subclass (`_NumberedCanvas`) that
+defers footer rendering to `save()`, when the total page count is known.
+**Reasoning:** The alternative — a two-pass build where the story is
+constructed and built twice — fails because `SimpleDocTemplate.build()`
+consumes story flowables; the second pass produces an empty PDF. The
+`_NumberedCanvas` approach builds once, stores per-page state in a list,
+then re-plays pages with the final `Page X of Y` string at save time.
+`invariant=True` and `pageCompression=0` remain effective.
+**Reversible?** Easy.
+
+### D-28: Idempotent `analyst_name` column migration
+**Made in:** Phase 11
+**Date:** 2026-06-01
+**Decision:** Added `analyst_name TEXT` to the `analyses` table via
+`ALTER TABLE` inside a new `_migrate()` function called from `init_db()`.
+The migration is idempotent — it checks `PRAGMA table_info` before issuing
+the ALTER.
+**Reasoning:** Adding the column to the `SCHEMA` DDL would only help fresh
+databases. Existing DBs (Nayab's laptop) need the ALTER. Running `setup.py`
+or booting `app.py` triggers `init_db()` → `_migrate()` seamlessly.
+**Reversible?** Easy — drop the ALTER; existing DBs keep the column (it's
+NULL-tolerant) and the code defaults to "Anonymous Analyst".
+
+### D-29: Single-pass multi-hash via `compute_multi_hash`
+**Made in:** Phase 11
+**Date:** 2026-06-01
+**Decision:** Read the APK file once and compute SHA-256, SHA-1, and MD5
+in parallel. The existing `compute_sha256` is preserved (called at upload
+time) for backwards compatibility.
+**Reasoning:** Triple I/O for a potentially large APK is wasteful. Reading
+once and updating three hash objects is O(n) with no extra disk seeks.
+**Reversible?** Trivial.
 
 ### D-23: Educational PDF content rendered inline, not appendix
 **Made in:** Phase 8

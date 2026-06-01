@@ -44,3 +44,7 @@ TOOL_VERSION = "1.0.0"
 # Year rendered in the two-line brand footer (CLAUDE.md §5). Never hardcoded in
 # the templates — surfaced to Jinja via the context processor in app.py.
 FOOTER_YEAR = datetime.now().year
+
+# Phase 11: timezone for all report timestamps (IANA key). Defaults to PKT
+# per the project's LGU base. Override with SECUREAPK_REPORT_TZ env var.
+REPORT_TIMEZONE = os.environ.get("SECUREAPK_REPORT_TZ", "Asia/Karachi")

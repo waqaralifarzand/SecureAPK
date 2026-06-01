@@ -58,6 +58,10 @@ def upload():
         educational_enabled=bool(request.form.get("educational_enabled")),
     )
 
+    # Phase 11: analyst name — optional, max 100 chars, strip control chars.
+    raw_analyst = (request.form.get("analyst_name") or "").strip()[:100]
+    analyst_name = "".join(c for c in raw_analyst if c.isprintable()) or None
+
     config.UPLOADS_PATH.mkdir(parents=True, exist_ok=True)
 
     # Save under a temporary name first, hash, then rename to <analysis_id>.apk.
@@ -81,6 +85,8 @@ def upload():
     tmp_path.rename(final_path)
 
     db_manager.set_apk_path(analysis_id, str(final_path))
+    if analyst_name:
+        db_manager.set_analyst_name(analysis_id, analyst_name)
 
     threading.Thread(
         target=analyzer.run_analysis,

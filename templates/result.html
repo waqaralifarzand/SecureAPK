@@ -26,6 +26,7 @@
     <dt>Package</dt><dd class="mono">{{ analysis.package_name or '&mdash;' }}</dd>
     <dt>APK</dt><dd>{{ analysis.apk_filename }} ({{ analysis.apk_size_bytes }} bytes)</dd>
     <dt>SHA-256</dt><dd class="mono hash">{{ analysis.apk_hash_sha256 }}</dd>
+    <dt>Analyst</dt><dd>{{ analysis.analyst_name or 'Anonymous Analyst' }}</dd>
     <dt>Status</dt><dd><span id="status-pill" class="pill pill-{{ analysis.status }}">{{ analysis.status }}</span></dd>
     <dt>Started</dt><dd>{{ analysis.started_at }}</dd>
   </dl>

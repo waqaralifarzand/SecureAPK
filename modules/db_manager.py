@@ -163,6 +163,14 @@ def init_db() -> None:
     with _connect() as conn:
         for stmt in SCHEMA:
             conn.execute(stmt)
+        _migrate(conn)
+
+
+def _migrate(conn) -> None:
+    """Idempotent schema migrations for columns added after Phase 1."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(analyses)").fetchall()}
+    if "analyst_name" not in cols:
+        conn.execute("ALTER TABLE analyses ADD COLUMN analyst_name TEXT")
 
 
 def _now() -> str:
@@ -241,6 +249,11 @@ def mark_failed(analysis_id: str, error_message: str) -> None:
 def set_apk_path(analysis_id: str, apk_path: str) -> None:
     with _connect() as conn:
         conn.execute("UPDATE analyses SET apk_path = ? WHERE id = ?", (apk_path, analysis_id))
+
+
+def set_analyst_name(analysis_id: str, name: str) -> None:
+    with _connect() as conn:
+        conn.execute("UPDATE analyses SET analyst_name = ? WHERE id = ?", (name, analysis_id))
 
 
 def delete_analysis(analysis_id: str) -> None:
