@@ -10,20 +10,26 @@
 <body>
 <header class="site-header">
   <div class="container header-inner">
-    <a class="brand" href="{{ url_for('index') }}">SecureAPK</a>
+    <a class="brand" href="{{ url_for('index') }}">
+      <span class="brand-mark">&#9651;</span>SecureAPK
+    </a>
     <nav class="site-nav">
-      <a href="{{ url_for('index') }}">Home</a>
-      <a href="{{ url_for('dashboard') }}">Dashboard</a>
-      <a href="{{ url_for('health') }}">Health</a>
+      <a href="{{ url_for('index') }}"
+         class="{{ 'active' if request.endpoint in ('index', 'upload', 'view_analysis') else '' }}">Analyze</a>
+      <a href="{{ url_for('dashboard') }}"
+         class="{{ 'active' if request.endpoint == 'dashboard' else '' }}">Dashboard</a>
     </nav>
   </div>
 </header>
-<main class="container">
-  {% block content %}{% endblock %}
+<main class="site-main">
+  <div class="container">
+    {% block content %}{% endblock %}
+  </div>
 </main>
 <footer class="site-footer">
   <div class="container">
-    <span>SecureAPK 1.0.0 &mdash; Local analysis only.</span>
+    <p class="footer-line">SecureAPK &copy; {{ footer_year }} &mdash; Nayab Kazim (FA-22/BS DFCS/081) &mdash; Lahore Garrison University</p>
+    <p class="footer-line footer-sub">Department of Criminology &middot; Digital Forensics &amp; Cyber Security &middot; Final Year Project</p>
   </div>
 </footer>
 {% block scripts %}{% endblock %}

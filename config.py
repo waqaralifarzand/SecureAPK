@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -11,7 +12,7 @@ JADX_PATH = os.environ.get("SECUREAPK_JADX_PATH", None)
 ADB_PATH = os.environ.get("SECUREAPK_ADB_PATH", None)
 AAPT_PATH = os.environ.get("SECUREAPK_AAPT_PATH", None)
 
-MAX_UPLOAD_SIZE_MB = 200
+MAX_UPLOAD_SIZE_MB = 100
 ANALYSIS_TIMEOUT_SECONDS = 300
 JADX_TIMEOUT_SECONDS = 180
 DYNAMIC_LOGCAT_DURATION_SECONDS = 30
@@ -39,3 +40,7 @@ SECRET_KEY = os.environ.get("SECUREAPK_SECRET_KEY", "dev-only-secret-change-in-p
 
 TOOL_NAME = "SecureAPK"
 TOOL_VERSION = "1.0.0"
+
+# Year rendered in the two-line brand footer (CLAUDE.md §5). Never hardcoded in
+# the templates — surfaced to Jinja via the context processor in app.py.
+FOOTER_YEAR = datetime.now().year

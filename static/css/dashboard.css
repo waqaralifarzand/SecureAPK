@@ -1,18 +1,30 @@
+.dashboard-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.dashboard-title-row h1 { margin: 0; }
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
 .dashboard-table {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 16px;
   background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
 }
 .dashboard-table th,
 .dashboard-table td {
   text-align: left;
-  padding: 10px 14px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   font-size: 14px;
+  white-space: nowrap;
 }
 .dashboard-table th {
   background: var(--bg-elevated);
@@ -22,4 +34,61 @@
   letter-spacing: .04em;
   font-size: 12px;
 }
-.dashboard-table tr:last-child td { border-bottom: none; }
+.dashboard-table tbody tr:last-child td { border-bottom: none; }
+.dashboard-table tbody tr:hover { background: var(--bg-elevated); }
+
+/* ID column — monospace cyan link */
+.id-link {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+.id-link:hover { color: var(--accent-hover); text-decoration: underline; }
+
+/* Risk-level pill */
+.risk-pill {
+  display: inline-block;
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.risk-pill-high    { background: rgba(255, 77, 79, .15);  color: var(--sev-high); }
+.risk-pill-medium  { background: rgba(250, 173, 20, .15); color: var(--sev-medium); }
+.risk-pill-low     { background: rgba(82, 196, 26, .15);  color: var(--sev-low); }
+.risk-pill-pending { background: rgba(139, 148, 158, .15); color: var(--text-secondary); }
+
+/* Action buttons — View=blue, PDF=green, Del=red */
+.row-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.btn-action {
+  display: inline-block;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: none;
+}
+.btn-action:hover { text-decoration: none; color: #fff; }
+.btn-view { background: var(--primary); }
+.btn-view:hover { background: var(--primary-hover); }
+.btn-pdf  { background: var(--action-pdf); }
+.btn-pdf:hover { background: var(--action-pdf-hover); }
+.btn-del  { background: var(--action-del); }
+.btn-del:hover { background: var(--action-del-hover); }
+.btn-disabled {
+  background: var(--primary-disabled);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+  pointer-events: none;
+}

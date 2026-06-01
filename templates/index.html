@@ -1,9 +1,49 @@
 {% extends "base.html" %}
-{% block title %}SecureAPK &mdash; Upload{% endblock %}
+{% block title %}SecureAPK &mdash; Analyze{% endblock %}
 {% block content %}
-<section class="upload-section">
-  <h1>Upload an APK for analysis</h1>
-  <p class="muted">Static + dynamic Android security analysis. Local only.</p>
+
+<section class="hero">
+  <span class="hero-badge mono">Final Year Project &mdash; LGU Digital Forensics &amp; Cyber Security</span>
+  <h1 class="hero-title">
+    <span class="hero-title-line">Hybrid Android</span>
+    <span class="hero-title-line hero-gradient">Security Analysis</span>
+  </h1>
+  <p class="hero-desc muted">
+    Upload an APK and SecureAPK runs a six-phase static and dynamic security
+    assessment &mdash; manifest inspection, decompiled source scanning, runtime
+    monitoring, and weighted risk scoring aligned to OWASP Mobile Top 10 and CWE.
+  </p>
+</section>
+
+<section class="pipeline" aria-label="Analysis pipeline">
+  <div class="pipeline-step">
+    <span class="pipeline-icon">&#128229;</span>
+    <span class="pipeline-label mono">APK Upload</span>
+  </div>
+  <span class="pipeline-arrow" aria-hidden="true">&rarr;</span>
+  <div class="pipeline-step">
+    <span class="pipeline-icon">&#128196;</span>
+    <span class="pipeline-label mono">Manifest Analysis</span>
+  </div>
+  <span class="pipeline-arrow" aria-hidden="true">&rarr;</span>
+  <div class="pipeline-step">
+    <span class="pipeline-icon">&#128269;</span>
+    <span class="pipeline-label mono">Code Scanning</span>
+  </div>
+  <span class="pipeline-arrow" aria-hidden="true">&rarr;</span>
+  <div class="pipeline-step">
+    <span class="pipeline-icon">&#128241;</span>
+    <span class="pipeline-label mono">Runtime Monitor</span>
+  </div>
+  <span class="pipeline-arrow" aria-hidden="true">&rarr;</span>
+  <div class="pipeline-step">
+    <span class="pipeline-icon">&#128202;</span>
+    <span class="pipeline-label mono">Risk Report</span>
+  </div>
+</section>
+
+<section class="upload-card">
+  <h2 class="upload-card-title">Upload APK for Analysis</h2>
 
   {% if error %}
     <div class="alert alert-error">{{ error }}</div>
@@ -11,21 +51,73 @@
 
   <form class="upload-form" method="POST" action="{{ url_for('upload') }}" enctype="multipart/form-data">
     <label class="dropzone" id="dropzone" for="apk_file">
-      <span class="dropzone-label">Drop a .apk file here or click to select</span>
-      <span class="dropzone-file" id="dropzone-file"></span>
+      <span class="dropzone-icon" aria-hidden="true">&#128230;</span>
+      <span class="dropzone-label">Drag &amp; drop your APK file here</span>
+      <span class="dropzone-hint muted">or click to browse &mdash; max {{ max_upload_mb }} MB</span>
+      <span class="dropzone-file mono" id="dropzone-file" hidden></span>
       <input type="file" id="apk_file" name="apk_file" accept=".apk" required hidden>
     </label>
 
     <fieldset class="options">
-      <legend>Analysis options</legend>
-      <label><input type="checkbox" name="dynamic_enabled" value="1"> Enable Dynamic Analysis (requires emulator)</label>
-      <label><input type="checkbox" name="sbp_enabled" value="1"> Enable SBP Banking Compliance Check</label>
-      <label><input type="checkbox" name="educational_enabled" value="1"> Enable Educational Mode</label>
+      <legend>Analysis Options</legend>
+
+      <label class="toggle">
+        <input type="checkbox" name="dynamic_enabled" value="1">
+        <span class="toggle-switch" aria-hidden="true"></span>
+        <span class="toggle-text">
+          <span class="toggle-name">Enable Dynamic Analysis</span>
+          <span class="toggle-note muted">requires Android emulator via ADB</span>
+        </span>
+      </label>
+
+      <label class="toggle">
+        <input type="checkbox" name="sbp_enabled" value="1">
+        <span class="toggle-switch" aria-hidden="true"></span>
+        <span class="toggle-text">
+          <span class="toggle-name">Enable SBP Banking Compliance Check</span>
+          <span class="toggle-note muted">State Bank of Pakistan cybersecurity framework</span>
+        </span>
+      </label>
+
+      <label class="toggle">
+        <input type="checkbox" name="educational_enabled" value="1">
+        <span class="toggle-switch" aria-hidden="true"></span>
+        <span class="toggle-text">
+          <span class="toggle-name">Enable Educational Mode</span>
+          <span class="toggle-note muted">vulnerable / fixed snippets with explanations</span>
+        </span>
+      </label>
     </fieldset>
 
-    <button type="submit" class="btn btn-primary">Start Analysis</button>
+    <button type="submit" id="start-analysis" class="btn btn-primary btn-block" disabled>
+      Start Analysis &rarr;
+    </button>
   </form>
 </section>
+
+<section class="feature-grid" aria-label="Capabilities">
+  <article class="feature-card">
+    <span class="feature-icon" aria-hidden="true">&#128196;</span>
+    <h3 class="feature-title">Manifest Inspection</h3>
+    <p class="feature-desc muted">Permissions, exported components, cleartext config, and debuggable flags.</p>
+  </article>
+  <article class="feature-card">
+    <span class="feature-icon" aria-hidden="true">&#128269;</span>
+    <h3 class="feature-title">Source Code Scanning</h3>
+    <p class="feature-desc muted">Jadx decompile, hardcoded secrets, weak crypto &mdash; 34 detection patterns.</p>
+  </article>
+  <article class="feature-card">
+    <span class="feature-icon" aria-hidden="true">&#128241;</span>
+    <h3 class="feature-title">Runtime Monitoring</h3>
+    <p class="feature-desc muted">ADB install + execute, logcat capture, network and runtime events.</p>
+  </article>
+  <article class="feature-card">
+    <span class="feature-icon" aria-hidden="true">&#128202;</span>
+    <h3 class="feature-title">Risk Scoring</h3>
+    <p class="feature-desc muted">Weighted severity model, Low/Medium/High, OWASP + CWE references.</p>
+  </article>
+</section>
+
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>

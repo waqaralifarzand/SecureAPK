@@ -5,42 +5,63 @@
 {% endblock %}
 {% block content %}
 <section>
-  <h1>Analysis history</h1>
+  <div class="dashboard-title-row">
+    <h1>Analysis Dashboard</h1>
+    <a class="btn btn-primary" href="{{ url_for('index') }}">+ New Analysis</a>
+  </div>
+
   {% if analyses %}
+  <div class="table-wrap">
   <table class="dashboard-table">
     <thead>
       <tr>
-        <th>Started</th>
-        <th>APK</th>
-        <th>Hash</th>
-        <th>Status</th>
-        <th>Classification</th>
+        <th>ID</th>
+        <th>APK File</th>
+        <th>Risk Level</th>
+        <th>Score</th>
+        <th>Vulnerabilities</th>
+        <th>Date</th>
         <th>Actions</th>
       </tr>
     </thead>
     <tbody>
       {% for a in analyses %}
       <tr>
-        <td>{{ a.started_at }}</td>
-        <td>{{ a.apk_filename }}</td>
-        <td class="mono">{{ a.apk_hash_sha256[:12] }}&hellip;</td>
-        <td><span class="pill pill-{{ a.status }}">{{ a.status }}</span></td>
-        <td>{{ a.risk_classification or '&mdash;'|safe }}</td>
         <td>
-          <a class="btn btn-sm" href="{{ url_for('view_analysis', analysis_id=a.id) }}">View</a>
+          <a class="mono id-link" href="{{ url_for('view_analysis', analysis_id=a.id) }}">{{ a.id[:8]|upper }}</a>
+        </td>
+        <td>{{ a.apk_filename }}</td>
+        <td>
+          {% if a.risk_classification %}
+            <span class="risk-pill risk-pill-{{ a.risk_classification|lower }}">{{ a.risk_classification }}</span>
+          {% else %}
+            <span class="risk-pill risk-pill-pending">{{ a.status }}</span>
+          {% endif %}
+        </td>
+        <td class="mono">{% if a.risk_score is not none %}{{ a.risk_score }}/100{% else %}&mdash;{% endif %}</td>
+        <td>{{ a.findings_count }}</td>
+        <td class="mono">{{ a.started_at[:10] if a.started_at else '&mdash;' }}</td>
+        <td class="row-actions">
+          <a class="btn-action btn-view" href="{{ url_for('view_analysis', analysis_id=a.id) }}">View</a>
+          {% if a.pdf_path %}
+          <a class="btn-action btn-pdf" href="{{ url_for('download_report', analysis_id=a.id) }}">PDF</a>
+          {% else %}
+          <span class="btn-action btn-pdf btn-disabled" aria-disabled="true">PDF</span>
+          {% endif %}
           <form method="POST" action="{{ url_for('delete_analysis', analysis_id=a.id) }}" style="display:inline">
-            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this analysis?')">Delete</button>
+            <button type="submit" class="btn-action btn-del" onclick="return confirm('Delete this analysis?')">Del</button>
           </form>
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
     <div class="empty-state">
       <h2>No analyses yet</h2>
       <p class="muted">Upload your first APK to begin a security analysis.</p>
-      <a class="btn btn-primary" href="{{ url_for('index') }}">Upload an APK</a>
+      <a class="btn btn-primary" href="{{ url_for('index') }}">+ New Analysis</a>
     </div>
   {% endif %}
 </section>
