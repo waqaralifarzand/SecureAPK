@@ -23,6 +23,20 @@ app.config["MAX_CONTENT_LENGTH"] = config.MAX_UPLOAD_SIZE_MB * 1024 * 1024
 app.config["SECRET_KEY"] = config.SECRET_KEY
 
 
+@app.context_processor
+def inject_brand_globals():
+    """Expose presentation-only globals to every template (Phase 10 redesign).
+
+    The brand footer year and the upload-size hint are config values, never
+    hardcoded in the markup (CLAUDE.md §5). Injected here so the templates can
+    stay logic-free.
+    """
+    return {
+        "footer_year": config.FOOTER_YEAR,
+        "max_upload_mb": config.MAX_UPLOAD_SIZE_MB,
+    }
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -164,6 +178,12 @@ def download_report(analysis_id: str):
 @app.route("/dashboard")
 def dashboard():
     analyses = db_manager.list_analyses()
+    # Phase 10 redesign: the dashboard table has a "Vulnerabilities" column.
+    # That count isn't a column on the analyses row, so attach it per-row from
+    # the existing findings table (read-only; no schema or route-signature
+    # change). See SCRATCHPAD Phase 10 entry.
+    for a in analyses:
+        a["findings_count"] = len(db_manager.get_findings(a["id"]))
     return render_template("dashboard.html", analyses=analyses)
 
 

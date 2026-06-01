@@ -20,7 +20,8 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 | 6 — PDF Reports + Forensic | ✅ Merged | 2026-05-14 | 2026-05-14 | [#6](https://github.com/waqaralifarzand/SecureAPK/pull/6) |
 | 7 — SBP Banking Compliance | ✅ Merged | 2026-05-14 | 2026-05-14 | [#7](https://github.com/waqaralifarzand/SecureAPK/pull/7) |
 | 8 — Educational Mode | ✅ Merged | 2026-05-14 | 2026-05-14 | [#8](https://github.com/waqaralifarzand/SecureAPK/pull/8) |
-| 9 — Testing & Polish | 🔄 PR open | 2026-05-14 | 2026-05-14 | _(see entry below)_ |
+| 9 — Testing & Polish | ✅ Merged | 2026-05-14 | 2026-05-14 | [#9](https://github.com/waqaralifarzand/SecureAPK/pull/9) |
+| 10 — UI Redesign | 🔄 PR open | 2026-06-01 | 2026-06-01 | _(see entry below)_ |
 
 **Running test count:** 42 / 34 target (✅ exceeded by 8)
 **Coverage (modules/):** 88%
@@ -31,7 +32,7 @@ Mirror the boxes from `PHASES.md`. Update when a phase opens (`🔄`) and when i
 
 - **Repo:** https://github.com/waqaralifarzand/SecureAPK
 - **Default branch:** `main`
-- **Active branch:** `phase-9-testing-polish` (Phase 9 — final)
+- **Active branch:** `phase-10-ui-redesign` (Phase 10 — presentation-only UI overhaul)
 - **Local dev URL:** http://127.0.0.1:5000 _(when `python app.py` is running)_
 
 ---
@@ -959,6 +960,80 @@ into Concepts / Architecture / Demos / Defensive answers.
 **Next session picks up at:** v1.0.0 tag + viva rehearsal. The
 project is feature-complete.
 
+### Phase 10 — UI Redesign
+
+**Branch:** `phase-10-ui-redesign`
+**PR:** _(draft — URL to be filled in after push)_
+**Completed:** 2026-06-01
+**Test count after this phase:** 42 / 34 (unchanged — presentation-only)
+
+**What was built:**
+Presentation-only visual overhaul to the approved mockup (CLAUDE.md §5 +
+ARCHITECTURE.md §5). Zero changes to `modules/`, the DB schema, or analyzer
+logic. New home page: cyan-bordered monospace hero badge → two-line title
+("Hybrid Android" in light + "Security Analysis" in the `#22d3ee→#3b82f6`
+gradient) → muted description; a 5-step pipeline strip (APK Upload →
+Manifest Analysis → Code Scanning → Runtime Monitor → Risk Report) with
+icons + monospace labels joined by `→` arrows; a styled upload card with a
+dashed drag-drop zone, box icon, "max 100 MB" hint, selected-file preview,
+the **three** analysis toggles styled as switches, and a full-width blue
+"Start Analysis →" button disabled until a file is chosen; a 4-card feature
+grid. New dashboard: "Analysis Dashboard" title row + blue "+ New Analysis"
+button + polished table (ID monospace-cyan link, APK File, Risk Level pill,
+Score NN/100, Vulnerabilities, Date YYYY-MM-DD, View/PDF/Del colored action
+buttons, row hover). Result page adopts the new header/footer/fonts via
+`base.html`; tab structure and content untouched. New two-line brand footer
+with the year sourced from `config.FOOTER_YEAR`.
+
+**All three toggles retained:** ✅ Dynamic, ✅ SBP Banking Compliance, ✅
+Educational Mode — all present in the options panel, styled identically,
+posting the same `dynamic_enabled` / `sbp_enabled` / `educational_enabled`
+form fields the routes already expect. (The mockup showed only the Dynamic
+toggle; that omission was NOT followed — SBP/Educational are core
+differentiators.)
+
+**Verified working:**
+- `python -m pytest tests/ -v` → **42 passed** (unchanged; no logic touched).
+  The Flask-client regression test in `test_sbp_compliance.py` (which renders
+  `result.html` and asserts the SBP tab is absent when `sbp_enabled=False`)
+  still passes — the `data-tab="sbp"` / `data-tab-panel="sbp"` conditionals
+  were preserved verbatim.
+- Home page (test client): hero badge + gradient present, 5 pipeline steps,
+  3 toggle checkboxes (dynamic/sbp/educational), 4 feature cards, "max 100 MB"
+  text, Start Analysis rendered `disabled`, footer year present.
+- End-to-end on a synthetic banking APK with all three toggles on: analysis
+  reaches `completed`, PDF generated and `GET .../report.pdf` → 200
+  `application/pdf`. Dashboard table renders ID link / risk pill / Score /100
+  / Vulnerabilities / Date / View+PDF+Del buttons. Result page renders all
+  six tabs (Manifest, Source, Dynamic, Risk, Permissions, SBP) with the new
+  header brand + brand footer.
+
+**Pending / deferred:**
+- **Browser screenshots.** The execution container has no headless browser
+  and the Chromium download is blocked by the network policy, so the
+  home/dashboard/result screenshots requested for the PR must be captured
+  locally by Nayab (`python app.py` → visit `/`, `/dashboard`, a result page).
+  Rendering was verified structurally via the Flask test client instead.
+
+**Known issues:**
+- None. Deferred screenshots are an environment limitation, not a defect.
+
+**Mid-execution decisions:**
+- D-26 (see decisions log): two minimal, presentation-only additions to
+  `app.py` (a context processor + a per-row vulnerability count on the
+  dashboard route) — no route signatures changed. Documented per the Phase 10
+  scope rule ("if a template variable is genuinely missing, document it in
+  SCRATCHPAD before changing app.py").
+
+**Files touched:** 10 modified — `templates/base.html`, `templates/index.html`,
+`templates/dashboard.html`, `static/css/main.css`, `static/css/dashboard.css`,
+`static/js/main.js`, `config.py`, `app.py`, `SCRATCHPAD.md` (+ `result.html`
+and `result.css` reviewed; they inherit the new chrome from `base.html` and
+needed no edits beyond what `base.html`/`main.css` provide).
+
+**Next session picks up at:** v1.0.0 tag + viva rehearsal. Project remains
+feature-complete; this phase changed presentation only.
+
 ---
 
 ## Open questions (cross-phase)
@@ -1229,6 +1304,28 @@ and also prints the same timing on success.
 debugging time. With actual seconds in the message, the failure tells
 you whether you're 5% over (machine load) or 5x over (regression).
 **Reversible?** Trivial.
+
+### D-26: Two minimal presentation-only additions to `app.py` in Phase 10
+**Made in:** Phase 10
+**Date:** 2026-06-01
+**Decision:** Phase 10 added exactly two things to `app.py`, neither of
+which changes a route signature: (1) a `@app.context_processor`
+(`inject_brand_globals`) exposing `footer_year` (`config.FOOTER_YEAR`) and
+`max_upload_mb` (`config.MAX_UPLOAD_SIZE_MB`) to every template, and (2) a
+two-line loop in the existing `dashboard()` route that attaches
+`findings_count = len(db_manager.get_findings(id))` to each analysis dict.
+**Reasoning:** The redesigned chrome needs a non-hardcoded footer year and
+the dashboard mockup requires a "Vulnerabilities" column. Neither value
+exists on the `analyses` row, so they are genuinely-missing template
+variables. The Phase 10 scope explicitly permits this: "if a template
+variable is genuinely missing, document it in SCRATCHPAD before changing
+app.py." Both additions are read-only and presentation-only — no schema
+change, no module change, no new query in `db_manager` (the existing
+`get_findings` is reused). All 42 tests still pass, including the Flask
+client render test.
+**Reversible?** Easy — delete the context processor and the loop; the
+templates would then fall back to empty `footer_year`/`max_upload_mb` and a
+missing count.
 
 ### D-23: Educational PDF content rendered inline, not appendix
 **Made in:** Phase 8
