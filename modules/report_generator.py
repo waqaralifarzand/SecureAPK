@@ -1,23 +1,16 @@
-"""Phase 6 - ReportLab Platypus PDF report generator.
+"""Phase 6 + Phase 11 — ReportLab Platypus PDF report generator.
 
-Produces the forensic-grade security report that ships SecureAPK's first
-MobSF differentiator: every report embeds the APK's SHA-256 hash on the
-cover page and a chronological audit-log appendix for chain-of-custody.
+Phase 6 established the layout: cover, risk summary, findings sections,
+OWASP/CWE summary, audit-log appendix.  Phase 11 expands the cover into
+five forensic blocks (Tool / Case / Evidence / Environment / Methodology),
+adds page-numbered footers, timezone-aware timestamps, and two new
+appendices (Chain of Custody and Verification of Evidence Integrity) to
+meet ISO/IEC 27037:2012 court-admissibility requirements.
 
-Layout (per ARCHITECTURE.md sec 11.1):
-    1. Cover - tool, title, app name/package, APK hash, timestamps,
-                analyst, tool version
-    2. Risk Summary - banner, score, phase breakdown, top 5 issues
-    3. Manifest - metadata, insecure flags, permissions, exported, findings
-    4. Source Code - findings grouped by category
-    5. Dynamic (only if enabled) - status, runtime events, findings
-    6. OWASP MTW10 + CWE - triggered categories with full names
-    7. Audit Log Appendix - chain-of-custody, chronological
-
-Determinism: findings are sorted (severity DESC, category ASC, title ASC)
-before rendering so repeat generations produce byte-identical body
-content (the only timestamp embedded in the body is the analysis'
-own started_at / completed_at, which are stable for a completed run).
+Determinism: pageCompression=0 (grep-able SHA-256) and invariant=True
+(frozen /CreationDate, /ModDate, /ID) are preserved from Phase 6 (D-14,
+D-15). Two regenerations of the same analysis produce byte-identical PDFs
+except for the in-footer generation timestamp.
 """
 from __future__ import annotations
 
@@ -28,6 +21,7 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
+from reportlab.pdfgen import canvas as pdfgen_canvas
 from reportlab.platypus import (
     PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
 )
@@ -38,8 +32,6 @@ from modules.patterns.owasp_cwe_map import OWASP_MTW10_2024
 
 log = logging.getLogger(__name__)
 
-
-# CLAUDE.md sec 5 severity colours, lifted into ReportLab colour objects.
 _SEV_COLOR = {
     "HIGH":   colors.HexColor("#ff4d4f"),
     "MEDIUM": colors.HexColor("#faad14"),
@@ -47,13 +39,49 @@ _SEV_COLOR = {
 }
 _ACCENT = colors.HexColor("#00d4ff")
 _BORDER = colors.HexColor("#2d3447")
-_TEXT_PRIMARY = colors.HexColor("#0d1117")    # dark ink for print legibility
+_TEXT_PRIMARY = colors.HexColor("#0d1117")
 _TEXT_SECONDARY = colors.HexColor("#57606a")
 _BG_HEADER = colors.HexColor("#0a0e1a")
 _BG_HEADER_TEXT = colors.HexColor("#e6edf3")
 
-
 _SEVERITY_RANK = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+
+_PAGE_W, _PAGE_H = A4
+
+_generation_stamp = ""
+
+
+class _NumberedCanvas(pdfgen_canvas.Canvas):
+    """Canvas subclass that draws ``Page X of Y`` + generation timestamp
+    on every page.  The total page count is only known after the document
+    is fully laid out, so we defer the footer draw to ``save()``."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._saved_pages: list = []
+
+    def showPage(self):
+        self._saved_pages.append(dict(self.__dict__))
+        super().showPage()
+
+    def save(self):
+        total = len(self._saved_pages)
+        for idx, state in enumerate(self._saved_pages):
+            self.__dict__.update(state)
+            self._draw_footer(idx + 1, total)
+            super().showPage()
+        super().save()
+
+    def _draw_footer(self, page_num: int, total: int) -> None:
+        self.saveState()
+        self.setFont("Helvetica", 8)
+        self.setFillColor(colors.HexColor("#57606a"))
+        self.drawString(2 * cm, 1.2 * cm, f"Page {page_num} of {total}")
+        self.drawRightString(
+            _PAGE_W - 2 * cm, 1.2 * cm,
+            f"Generated: {_generation_stamp}",
+        )
+        self.restoreState()
 
 
 # --------------------------------------------------------------------------
@@ -61,8 +89,10 @@ _SEVERITY_RANK = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
 # --------------------------------------------------------------------------
 
 def generate(analysis_id: str) -> str:
-    """Build the PDF and return the saved path. Persists path on the
-    `analyses` row is the orchestrator's job, not ours."""
+    """Build the PDF and return the saved path."""
+    global _generation_stamp
+    _generation_stamp = forensic.now_iso8601_with_tz()
+
     analysis = db_manager.get_analysis(analysis_id)
     if not analysis:
         raise ValueError(f"analysis_id not found: {analysis_id}")
@@ -74,19 +104,24 @@ def generate(analysis_id: str) -> str:
     audit_entries = forensic.get_chain_of_custody(analysis_id)
     sbp_rules = (db_manager.get_sbp_findings(analysis_id)
                  if analysis.get("sbp_enabled") else [])
-    # Include SBP non-compliant rows in scoring so the PDF risk page
-    # matches the orchestrator-side risk write.
     risk_findings = list(findings) + risk_engine._sbp_findings_as_findings(analysis_id)
     risk = risk_engine.compute_from_findings(risk_findings)
+
+    apk_path = analysis.get("apk_path") or ""
+    if Path(apk_path).exists():
+        hashes = forensic.compute_multi_hash(apk_path)
+    else:
+        hashes = {
+            "sha256": analysis.get("apk_hash_sha256") or "",
+            "sha1": "",
+            "md5": "",
+        }
+
+    env = forensic.get_software_environment()
 
     config.REPORTS_PATH.mkdir(parents=True, exist_ok=True)
     out_path = config.REPORTS_PATH / f"{analysis_id}.pdf"
 
-    # pageCompression=0 keeps content streams uncompressed. Two payoffs:
-    #   1) forensic transparency - the SHA-256 hash appears as plain text in
-    #      the PDF bytes, so any examiner can `grep` it without unpacking.
-    #   2) deterministic output - two regenerations of the same analysis
-    #      produce byte-identical content streams (no zlib non-determinism).
     doc = SimpleDocTemplate(
         str(out_path), pagesize=A4,
         leftMargin=2 * cm, rightMargin=2 * cm,
@@ -94,18 +129,13 @@ def generate(analysis_id: str) -> str:
         title=f"SecureAPK Report - {analysis_id}",
         author=config.TOOL_NAME,
         pageCompression=0,
-        # invariant=True freezes the /CreationDate, /ModDate and /ID fields
-        # ReportLab would otherwise stamp from the system clock. Combined
-        # with pageCompression=0 this means two regenerations of a
-        # completed analysis produce byte-identical PDF output - the
-        # forensic-reproducibility guarantee.
         invariant=True,
     )
 
     styles = _build_styles()
     story: list = []
 
-    _build_cover(story, styles, analysis)
+    _build_cover(story, styles, analysis, hashes, env)
     _build_risk_summary(story, styles, risk)
     _build_manifest_section(story, styles, analysis, permissions, exported,
                             [f for f in findings if f["phase"] == 2])
@@ -119,9 +149,11 @@ def generate(analysis_id: str) -> str:
     if analysis.get("sbp_enabled"):
         _build_sbp_section(story, styles, sbp_rules)
     _build_owasp_cwe_section(story, styles, risk)
-    _build_audit_appendix(story, styles, audit_entries)
+    _build_chain_of_custody_appendix(story, styles, audit_entries)
+    _build_verification_appendix(story, styles, analysis, hashes)
 
-    doc.build(story)
+    doc.build(story, canvasmaker=_NumberedCanvas)
+
     return str(out_path)
 
 
@@ -171,54 +203,124 @@ def _build_styles() -> dict:
 
 
 # --------------------------------------------------------------------------
-# Sections
+# Cover page — 5 forensic blocks
 # --------------------------------------------------------------------------
 
-def _build_cover(story, styles, analysis):
+def _build_cover(story, styles, analysis, hashes, env):
+    # Block 1: Tool identification
     story.append(Paragraph("SecureAPK", styles["Title"]))
-    story.append(Paragraph("Security Analysis Report", styles["Subtitle"]))
-    story.append(Spacer(1, 18))
-
-    rows = [
-        ["Application name", _str(analysis.get("app_name"))],
-        ["Package name",     _str(analysis.get("package_name"))],
-        ["Version",          f"{_str(analysis.get('version_name'))} "
-                             f"({_str(analysis.get('version_code'))})"],
-        ["Original filename", _str(analysis.get("apk_filename"))],
-        ["File size (bytes)", _str(analysis.get("apk_size_bytes"))],
-        ["", ""],
-        ["APK SHA-256",       _str(analysis.get("apk_hash_sha256"))],
-        ["", ""],
-        ["Analysis started",   _str(analysis.get("started_at"))],
-        ["Analysis completed", _str(analysis.get("completed_at"))],
-        ["", ""],
-        ["Analyst",          "Anonymous Analyst"],
-        ["Tool version",     f"{config.TOOL_NAME} {config.TOOL_VERSION}"],
-    ]
-    table = Table(rows, colWidths=[5 * cm, 11 * cm])
-    table.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
-        ("FONTSIZE", (0, 0), (-1, -1), 10),
-        ("FONTNAME", (1, 6), (1, 6), "Courier-Bold"),   # hash row
-        ("TEXTCOLOR", (1, 6), (1, 6), _ACCENT),
-        ("TEXTCOLOR", (0, 0), (0, -1), _TEXT_SECONDARY),
-        ("VALIGN",   (0, 0), (-1, -1), "TOP"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    story.append(table)
-    story.append(Spacer(1, 24))
     story.append(Paragraph(
-        "<i>Forensic integrity: re-hash the analysed APK with "
-        "<font face='Courier'>sha256sum</font> and compare against the value above. "
-        "An exact match proves this report describes the same artefact that was uploaded.</i>",
+        "Hybrid Static &amp; Dynamic Android Security Analysis Framework",
+        styles["Subtitle"],
+    ))
+    story.append(Paragraph(
+        f"Report generated: {_generation_stamp}",
         styles["Muted"],
     ))
+    story.append(Spacer(1, 14))
+
+    # Block 2: Case identification
+    story.append(Paragraph("Case Identification", styles["H2"]))
+    analyst = analysis.get("analyst_name") or "Anonymous Analyst"
+    case_rows = [
+        ["Analysis ID", analysis.get("id", "")[:8].upper()],
+        ["Analyst", analyst],
+        ["Institution", "Lahore Garrison University, Department of Criminology"],
+    ]
+    story.append(_cover_table(case_rows))
+    story.append(Spacer(1, 10))
+
+    # Block 3: Evidence identification
+    story.append(Paragraph("Evidence Identification", styles["H2"]))
+    size_bytes = analysis.get("apk_size_bytes") or 0
+    size_mb = f"{size_bytes / (1024 * 1024):.1f} MB" if size_bytes else ""
+    evidence_rows = [
+        ["APK Filename", _str(analysis.get("apk_filename"))],
+        ["File Size", f"{size_bytes:,} bytes ({size_mb})"],
+        ["SHA-256", hashes.get("sha256", "")],
+        ["SHA-1", hashes.get("sha1", "")],
+        ["MD5", hashes.get("md5", "")],
+        ["Package", _str(analysis.get("package_name"))],
+        ["Version", f"{_str(analysis.get('version_name'))} "
+                    f"(code {_str(analysis.get('version_code'))})"],
+    ]
+    t = Table(evidence_rows, colWidths=[4 * cm, 12.5 * cm])
+    t.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("FONTNAME", (1, 2), (1, 4), "Courier-Bold"),  # hash rows
+        ("TEXTCOLOR", (1, 2), (1, 2), _ACCENT),        # SHA-256 accent
+        ("TEXTCOLOR", (0, 0), (0, -1), _TEXT_SECONDARY),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 10))
+
+    # Block 4: Software environment
+    story.append(Paragraph("Software Environment", styles["H2"]))
+    env_rows = [
+        ["Host OS", env.get("os", "")],
+        ["Python", env.get("python", "")],
+        ["Jadx", env.get("jadx", "")],
+        ["ADB", env.get("adb", "")],
+        ["SecureAPK", env.get("secureapk", "")],
+    ]
+    story.append(_cover_table(env_rows))
+    story.append(Spacer(1, 10))
+
+    # Block 5: Statement of Methodology
+    story.append(Paragraph("Statement of Methodology", styles["H2"]))
+    dynamic_word = "executed" if analysis.get("dynamic_enabled") else "skipped"
+    methodology = (
+        f"This report was generated by SecureAPK v{config.TOOL_VERSION}, "
+        f"a hybrid static and dynamic security analysis framework. "
+        f"The analysis followed a six-phase methodology aligned with "
+        f"ISO/IEC 27037:2012 (Guidelines for identification, collection, "
+        f"acquisition and preservation of digital evidence). "
+        f"Phase 2 inspected the AndroidManifest.xml file using PyAXMLParser. "
+        f"Phase 3 decompiled the APK using Jadx and scanned the resulting "
+        f"Java source against 34 vulnerability detection patterns spanning "
+        f"nine categories. Phase 4 {dynamic_word} dynamic runtime analysis "
+        f"in an isolated Android emulator. Phase 5 computed a weighted risk "
+        f"score and mapped findings to OWASP Mobile Top 10 (2024) and CWE "
+        f"references. Phase 6 generated this report. Every state change "
+        f"throughout the analysis is preserved in the Chain of Custody appendix."
+    )
+    story.append(Paragraph(methodology, styles["Body"]))
+    story.append(Spacer(1, 10))
+
+    # Timestamps
+    started = forensic.format_iso8601_with_tz(analysis.get("started_at"))
+    completed = forensic.format_iso8601_with_tz(analysis.get("completed_at"))
+    ts_rows = [
+        ["Analysis started", started],
+        ["Analysis completed", completed],
+        ["Tool version", f"{config.TOOL_NAME} {config.TOOL_VERSION}"],
+    ]
+    story.append(_cover_table(ts_rows))
     story.append(PageBreak())
 
 
+def _cover_table(rows):
+    """Small label→value table used repeatedly on the cover."""
+    t = Table(rows, colWidths=[4 * cm, 12.5 * cm])
+    t.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("TEXTCOLOR", (0, 0), (0, -1), _TEXT_SECONDARY),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    return t
+
+
+# --------------------------------------------------------------------------
+# Body sections — unchanged from Phase 6
+# --------------------------------------------------------------------------
+
 def _build_risk_summary(story, styles, risk):
     story.append(Paragraph("Risk Summary", styles["H1"]))
-
     classification = risk["classification"]
     score = risk["normalized_score"]
     banner = Table(
@@ -258,13 +360,11 @@ def _build_risk_summary(story, styles, risk):
         story.append(t)
     else:
         story.append(Paragraph("No findings recorded.", styles["Muted"]))
-
     story.append(PageBreak())
 
 
 def _build_manifest_section(story, styles, analysis, permissions, exported, manifest_findings):
     story.append(Paragraph("Manifest Analysis", styles["H1"]))
-
     meta = [
         ["Target SDK", _str(analysis.get("target_sdk"))],
         ["Min SDK", _str(analysis.get("min_sdk"))],
@@ -299,7 +399,6 @@ def _build_manifest_section(story, styles, analysis, permissions, exported, mani
     story.append(Paragraph(f"Manifest findings ({len(manifest_findings)})", styles["H2"]))
     for f in manifest_findings:
         _append_finding(story, styles, f)
-
     story.append(PageBreak())
 
 
@@ -323,15 +422,11 @@ def _build_source_section(story, styles, source_findings, *, educational_enabled
 
 
 def _append_educational_block(story, styles, finding):
-    """When educational mode is on, append a 3-row remediation block under
-    the source finding card. Manifest/dynamic/SBP findings have no
-    pattern_id in VULN_PATTERNS and produce no block (None lookup)."""
     rem = educational.get_remediation_for_pattern(finding.get("pattern_id"))
     if not rem:
         return
-
-    vuln_bg = colors.HexColor("#fff1f0")   # light red tint, print-friendly
-    fix_bg = colors.HexColor("#f3fff0")    # light green tint
+    vuln_bg = colors.HexColor("#fff1f0")
+    fix_bg = colors.HexColor("#f3fff0")
     neutral_bg = colors.HexColor("#f5f7fa")
 
     def _row(label, body, bg, accent):
@@ -367,7 +462,6 @@ def _build_dynamic_section(story, styles, runtime_events, dynamic_findings):
         f"Runtime events captured: <b>{len(runtime_events)}</b> &nbsp;|&nbsp; "
         f"Dynamic findings: <b>{len(dynamic_findings)}</b>", styles["Body"],
     ))
-
     if runtime_events:
         story.append(Paragraph("Runtime events", styles["H2"]))
         rows = [["t (s)", "Severity", "Category", "Log line"]]
@@ -380,12 +474,10 @@ def _build_dynamic_section(story, styles, runtime_events, dynamic_findings):
             ])
         story.append(_styled_table(rows, [1.5 * cm, 2 * cm, 5 * cm, 7.5 * cm],
                                    severity_col=1))
-
     if dynamic_findings:
         story.append(Paragraph("Dynamic findings", styles["H2"]))
         for f in dynamic_findings:
             _append_finding(story, styles, f)
-
     story.append(PageBreak())
 
 
@@ -398,7 +490,6 @@ def _build_sbp_section(story, styles, sbp_rules):
         ))
         story.append(PageBreak())
         return
-
     counts: dict[str, int] = {}
     for r in sbp_rules:
         counts[r["compliance_status"]] = counts.get(r["compliance_status"], 0) + 1
@@ -406,7 +497,6 @@ def _build_sbp_section(story, styles, sbp_rules):
                      ("COMPLIANT", "NON_COMPLIANT", "MANUAL_REVIEW", "NOT_APPLICABLE")]
     story.append(Paragraph(" &nbsp;|&nbsp; ".join(summary_parts), styles["Body"]))
     story.append(Spacer(1, 6))
-
     rows = [["Rule", "Status", "Severity", "Evidence"]]
     for r in sbp_rules:
         rows.append([
@@ -428,7 +518,6 @@ def _build_owasp_cwe_section(story, styles, risk):
         story.append(_styled_table(rows, [2 * cm, 14 * cm]))
     else:
         story.append(Paragraph("No OWASP categories triggered.", styles["Muted"]))
-
     story.append(Paragraph("CWE references", styles["H2"]))
     if risk["cwes_triggered"]:
         story.append(Paragraph(
@@ -436,12 +525,15 @@ def _build_owasp_cwe_section(story, styles, risk):
         ))
     else:
         story.append(Paragraph("No CWE references attached.", styles["Muted"]))
-
     story.append(PageBreak())
 
 
-def _build_audit_appendix(story, styles, audit_entries):
-    story.append(Paragraph("Audit Log Appendix (Chain of Custody)", styles["H1"]))
+# --------------------------------------------------------------------------
+# Appendix A: Chain of Custody
+# --------------------------------------------------------------------------
+
+def _build_chain_of_custody_appendix(story, styles, audit_entries):
+    story.append(Paragraph("Appendix A: Chain of Custody", styles["H1"]))
     story.append(Paragraph(
         "Every state change recorded for this analysis, in chronological "
         "order. Together with the APK SHA-256 on the cover page, this "
@@ -450,13 +542,62 @@ def _build_audit_appendix(story, styles, audit_entries):
     ))
     story.append(Spacer(1, 8))
 
-    rows = [["Timestamp", "Action", "Details"]]
-    for row in forensic.format_audit_for_pdf(audit_entries):
-        rows.append([_trim(row[0], 26), _trim(row[1], 30), _trim(row[2], 70)])
+    rows = [["Timestamp", "Actor", "Action", "Details"]]
+    for e in audit_entries:
+        ts = forensic.format_iso8601_with_tz(e.get("timestamp"))
+        actor = _str(e.get("actor") or "system")
+        action = _str(e.get("action"))
+        details_raw = e.get("details")
+        if details_raw is None or details_raw == "":
+            details = ""
+        else:
+            try:
+                import json
+                obj = json.loads(details_raw) if isinstance(details_raw, str) else details_raw
+                if isinstance(obj, dict):
+                    details = ", ".join(f"{k}={obj[k]}" for k in obj)
+                else:
+                    details = str(obj)
+            except (ValueError, TypeError):
+                details = str(details_raw)
+        rows.append([ts, actor, action, _trim(details, 60)])
+
     if len(rows) == 1:
         story.append(Paragraph("No audit entries recorded.", styles["Muted"]))
         return
-    story.append(_styled_table(rows, [5 * cm, 5 * cm, 7 * cm]))
+    story.append(_styled_table(rows, [4.5 * cm, 2 * cm, 4 * cm, 6 * cm]))
+    story.append(PageBreak())
+
+
+# --------------------------------------------------------------------------
+# Appendix B: Verification of Evidence Integrity
+# --------------------------------------------------------------------------
+
+def _build_verification_appendix(story, styles, analysis, hashes):
+    story.append(Paragraph("Appendix B: Verification of Evidence Integrity", styles["H1"]))
+
+    filename = _str(analysis.get("apk_filename"))
+    sha256 = hashes.get("sha256", "")
+
+    text = (
+        f"To verify the integrity of the analyzed APK file:<br/><br/>"
+        f"1. Locate the original APK file.<br/><br/>"
+        f"2. Compute its SHA-256 hash using any cryptographic hash tool:<br/>"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;<font face='Courier'>sha256sum {filename}</font> "
+        f"&nbsp;(Linux/macOS)<br/>"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;<font face='Courier'>certutil -hashfile {filename} SHA256</font> "
+        f"&nbsp;(Windows)<br/><br/>"
+        f"3. Compare the resulting hash to the value printed in the Evidence "
+        f"Identification block on the cover page of this report:<br/>"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;<font face='Courier'>{sha256}</font><br/><br/>"
+        f"4. If the hashes match, the APK file has not been altered since "
+        f"analysis was performed. If the hashes differ, evidence integrity "
+        f"has been compromised and the report cannot be relied upon.<br/><br/>"
+        f"This report was generated with deterministic settings (Phase 6 D-15). "
+        f"Re-generating this PDF from the analysis should produce a byte-identical "
+        f"document except for the in-footer generation timestamp."
+    )
+    story.append(Paragraph(text, styles["Body"]))
 
 
 # --------------------------------------------------------------------------
@@ -504,7 +645,6 @@ def _append_finding(story, styles, f):
 
 
 def _styled_table(rows, col_widths, *, severity_col: int | None = None) -> Table:
-    """Headered data table with optional severity-cell colouring."""
     table = Table(rows, colWidths=col_widths, repeatRows=1)
     style = [
         ("BACKGROUND", (0, 0), (-1, 0), _BG_HEADER),

@@ -209,6 +209,26 @@ h4, h5, h6 { font-weight: 500; }
 .dropzone-hint { margin-top: 4px; font-size: 13px; }
 .dropzone-file { margin-top: 12px; color: var(--accent); font-size: 13px; }
 
+/* ---------- Analyst name field ---------- */
+.analyst-field { margin-top: 20px; }
+.analyst-label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; }
+.analyst-input {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-page);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 14px;
+}
+.analyst-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(0, 212, 255, .15);
+}
+.analyst-input::placeholder { color: var(--text-secondary); }
+
 /* ---------- Options / toggles ---------- */
 .options {
   margin-top: 22px;
