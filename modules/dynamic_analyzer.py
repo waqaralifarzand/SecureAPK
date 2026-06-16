@@ -93,6 +93,7 @@ def _run_pipeline(apk_path: str, package_name: str) -> dict[str, Any]:
     status = "completed"
     status_message = "Dynamic analysis completed successfully."
     logcat_seconds = 0
+    logcat_proc = None
 
     try:
         # 2. Install -----------------------------------------------------
@@ -108,7 +109,17 @@ def _run_pipeline(apk_path: str, package_name: str) -> dict[str, Any]:
             return _result(status="skipped_install_failed", emulator_id=emulator,
                            status_message=f"adb install failed: {_clip(e.stderr)}")
 
-        # 3. Launch via monkey ------------------------------------------
+        # 3. Clear logcat buffer and start capture BEFORE monkey ---------
+        #    This ensures we capture events generated during app execution.
+        try:
+            _run([adb, "-s", emulator, "logcat", "-c"], timeout=10)
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+            pass  # non-fatal: we may capture stale entries, but won't miss new ones
+
+        logcat_proc = _start_logcat(adb, emulator)
+        logcat_start = time.monotonic()
+
+        # 4. Launch via monkey ------------------------------------------
         try:
             _run([adb, "-s", emulator, "shell", "monkey", "-p", package_name,
                   "-c", "android.intent.category.LAUNCHER",
@@ -118,14 +129,16 @@ def _run_pipeline(apk_path: str, package_name: str) -> dict[str, Any]:
             status = "partial"
             status_message = "App was installed but failed to launch via monkey."
 
-        # 4. Settle, then 5. logcat capture ------------------------------
-        time.sleep(3)
-        capture_duration = (config.DYNAMIC_LOGCAT_DURATION_SECONDS
-                            + config.DYNAMIC_LOGCAT_SETTLE_SECONDS)
-        logs, logcat_seconds = _capture_logcat(adb, emulator, capture_duration)
+        # 5. Settle time — let the app finish responding to events ------
+        settle = config.DYNAMIC_LOGCAT_SETTLE_SECONDS
+        time.sleep(settle)
+
+        # 6. Terminate logcat and read output ---------------------------
+        logs, logcat_seconds = _finish_logcat(logcat_proc, logcat_start)
+        logcat_proc = None
         events = _classify_logcat(logs, package_name)
 
-        # 6. Best-effort permission snapshot - failure is non-fatal.
+        # 7. Best-effort permission snapshot - failure is non-fatal.
         try:
             _run([adb, "-s", emulator, "shell", "dumpsys", "package",
                   package_name], timeout=15)
@@ -137,6 +150,13 @@ def _run_pipeline(apk_path: str, package_name: str) -> dict[str, Any]:
         status = "partial"
         status_message = f"Dynamic analysis encountered an error: {e!s}"
     finally:
+        # Kill logcat if still running (e.g. after an exception).
+        if logcat_proc is not None:
+            _terminate(logcat_proc)
+            try:
+                logcat_proc.communicate(timeout=5)
+            except (subprocess.TimeoutExpired, OSError):
+                logcat_proc.kill()
         # 7. Uninstall ALWAYS runs - even on partial failure.
         if installed:
             try:
@@ -192,15 +212,13 @@ def _run(cmd: list[str], *, timeout: int) -> subprocess.CompletedProcess:
     return proc
 
 
-def _capture_logcat(adb: str, emulator: str, duration: int) -> tuple[str, int]:
-    """Stream `adb logcat -v time` for `duration` seconds, then terminate.
+def _start_logcat(adb: str, emulator: str) -> subprocess.Popen | None:
+    """Start `adb logcat -v time` as a background process.
 
-    Uses Popen + a process group on Unix so the child tree dies together.
-    Returns (combined stdout, actual elapsed seconds).
+    Returns the Popen handle (caller must terminate and read stdout later).
+    Returns None if the process cannot be started.
     """
     cmd = [adb, "-s", emulator, "logcat", "-v", "time"]
-
-    started = time.monotonic()
     popen_kwargs: dict[str, Any] = dict(
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True,
@@ -209,23 +227,26 @@ def _capture_logcat(adb: str, emulator: str, duration: int) -> tuple[str, int]:
         popen_kwargs["start_new_session"] = True
 
     try:
-        proc = subprocess.Popen(cmd, **popen_kwargs)
+        return subprocess.Popen(cmd, **popen_kwargs)
     except (FileNotFoundError, OSError) as e:
         log.warning("logcat Popen failed: %s", e)
+        return None
+
+
+def _finish_logcat(proc: subprocess.Popen | None, start_time: float) -> tuple[str, int]:
+    """Terminate a running logcat process and return its captured output."""
+    if proc is None:
         return "", 0
 
-    try:
-        time.sleep(duration)
-    finally:
-        _terminate(proc)
+    _terminate(proc)
 
     try:
-        stdout, _ = proc.communicate(timeout=5)
+        stdout, _ = proc.communicate(timeout=10)
     except subprocess.TimeoutExpired:
         proc.kill()
         stdout, _ = proc.communicate()
 
-    return (stdout or ""), int(time.monotonic() - started)
+    return (stdout or ""), int(time.monotonic() - start_time)
 
 
 def _terminate(proc: subprocess.Popen) -> None:
