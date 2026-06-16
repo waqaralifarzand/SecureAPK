@@ -303,11 +303,17 @@ Home page (/)
 ├── Upload card ("Upload APK for Analysis")
 │   ├── Drag-and-drop zone (box icon, "Drag & drop your APK file here", "or click to browse — max 100 MB")
 │   ├── Selected APK preview (filename, size)
+│   ├── CSRF hidden field (added Phase 12)
 │   ├── Options panel (three toggles, styled identically)
 │   │   ├── ☐ Enable Dynamic Analysis (requires Android emulator via ADB)
+│   │   │   └── ADB status indicator (Phase 12): inline banner below toggle showing
+│   │   │       emulator availability. Fetched from /api/health/adb on toggle activation.
+│   │   │       Warning state: "⚠ No emulator detected — dynamic analysis will be skipped."
+│   │   │       OK state: "✓ Emulator detected: <serial>"
 │   │   ├── ☐ Enable SBP Banking Compliance Check
 │   │   └── ☐ Enable Educational Mode
 │   └── [Start Analysis →] primary button (full width, blue; disabled until a file is selected)
+│       └── Loading state (Phase 12): on submit, button shows spinner + "Uploading…", prevents double-submit
 ├── Feature cards (4-column grid)
 │   ├── Manifest Inspection — permissions, exported components, cleartext config, debuggable flags
 │   ├── Source Code Scanning — Jadx decompile, hardcoded secrets, weak crypto, 34 patterns
@@ -321,7 +327,11 @@ remain in the options panel, styled identically to the Dynamic toggle.
 
 Analysis Running view (/analysis/<id> while status='running')
 ├── Header (analysis id, app name placeholder)
-├── Phase progress indicator (Phase 2 → 3 → [4] → [7] → 5 → 6 with active state; 4 and 7 conditional)
+├── Multi-step progress indicator (Phase 12 enhancement)
+│   ├── Phase icons: Manifest → Source → Dynamic → SBP → Risk → Report
+│   ├── Active phase highlighted with pulse animation
+│   ├── Completed phases show checkmark
+│   └── Conditional phases (Dynamic, SBP) shown dimmed if not enabled
 ├── Progress bar (0-100%)
 ├── Currently running phase label
 └── (Auto-redirects to Result view when status='completed')
@@ -342,6 +352,9 @@ Result page (/analysis/<id> when status='completed')
 │   │   └── Findings grouped by category, each card optionally expandable in Educational Mode
 │   ├── Dynamic Analysis (only if dynamic_enabled)
 │   │   ├── Status banner (success / no emulator / partial)
+│   │   │   └── Skip banner (Phase 12): prominent info-banner with setup instructions
+│   │   │       and "Re-analyze" link when status=skipped_no_emulator. Visual distinction
+│   │   │       between "not enabled" (neutral) and "enabled but skipped" (warning).
 │   │   ├── Runtime events list
 │   │   └── Findings list
 │   ├── Risk Details
@@ -739,11 +752,21 @@ The forensic report is the project's primary differentiator and must be court-ad
 4. **Software environment** — host OS + version, Python version, Jadx version (or "not installed"), ADB version (or "not used"), SecureAPK version
 5. **Statement of Methodology** — short paragraph describing the six-phase methodology, citing ISO/IEC 27037 as the governing framework
 
-**Body sections (existing layout preserved):**
+**Phase 12 additions — new PDF sections (in document order):**
+
+1. **Table of Contents** (after cover page) — ReportLab `TableOfContents` flowable listing all major sections with page numbers
+2. **Executive Summary** (after TOC, 1 page) — risk classification badge, finding counts by severity (HIGH/MEDIUM/LOW), top 3 issues, OWASP categories triggered, one-sentence recommendation, severity distribution bar chart (ReportLab `Drawing` with colored rectangles — no external dependencies)
+3. **Scope & Limitations** (after methodology) — what was analyzed, what was NOT (obfuscated code, native .so, server-side APIs), tool limitations (no Frida, emulator-only dynamic)
+4. **Legal Disclaimer** (cover page footer) — "This report is generated for educational and authorized security assessment purposes only."
+
+**Body sections (with Phase 12 enhancements):**
+- **Section numbering** — all major sections prefixed: 1. Risk Summary, 2. Manifest Analysis, 3. Source Code Analysis, etc. Subsections: 1.1, 1.2, etc.
+- **Findings Summary Tables** — at the start of each findings section: Category | Count | Highest Severity
 - Risk summary
 - Phase 2 / 3 / 4 / 7 findings (each phase heading carries a UTC timestamp of when that phase completed)
 - OWASP MTW10 + CWE references
 - (Educational expansions, when enabled)
+- **Conclusion & Recommendations** (after findings, before appendices) — total findings, classification, top 3 actionable recommendations, analysis scope statement
 
 **Required appendices (in order):**
 
@@ -866,24 +889,33 @@ The same probing logic is exposed at `GET /health` so users can verify mid-sessi
 
 ---
 
-## 15. The 34+ tests — coverage plan
+## 15. The 50+ tests — coverage plan
 
-| Module | Test file | Test count target |
-|---|---|---|
-| `manifest_analyzer.py` | `test_manifest_analyzer.py` | 5 |
-| `source_analyzer.py` | `test_source_analyzer.py` | 5 |
-| `dynamic_analyzer.py` | `test_dynamic_analyzer.py` | 4 (mocked ADB) |
-| `risk_engine.py` | `test_risk_engine.py` | 4 |
-| `report_generator.py` | `test_report_generator.py` | 3 |
-| `forensic.py` | `test_forensic.py` | 3 |
-| `sbp_compliance.py` | `test_sbp_compliance.py` | 3 |
-| `educational.py` | `test_educational.py` | 2 (incl. "every pattern has remediation") |
-| `db_manager.py` | `test_db_manager.py` | 3 |
-| `analyzer.py` | `test_orchestrator.py` | 2 (end-to-end with mocks) |
-| **Total** | | **34** |
+| Module | Test file | Test count target | Notes |
+|---|---|---|---|
+| `manifest_analyzer.py` | `test_manifest_analyzer.py` | 5 | |
+| `source_analyzer.py` | `test_source_analyzer.py` | 5 | |
+| `dynamic_analyzer.py` | `test_dynamic_analyzer.py` | 5 (mocked ADB) | +1 for monkey event count (Phase 12) |
+| `risk_engine.py` | `test_risk_engine.py` | 4 | |
+| `report_generator.py` | `test_report_generator.py` | 5 | +2 for TOC and executive summary (Phase 12) |
+| `forensic.py` | `test_forensic.py` | 3 | |
+| `sbp_compliance.py` | `test_sbp_compliance.py` | 3 | |
+| `educational.py` | `test_educational.py` | 2 (incl. "every pattern has remediation") | |
+| `db_manager.py` | `test_db_manager.py` | 3 | |
+| `analyzer.py` | `test_orchestrator.py` | 2 (end-to-end with mocks) | |
+| `app.py` | `test_app.py` | 3 | +2 for ADB health endpoint and CSRF (Phase 12), +1 for dashboard single query |
+| **Total** | | **40 base + 6 Phase 12 = 46 current → 50+ after Phase 12** | |
 
 Performance test: a separate benchmark run in `test_orchestrator.py` that asserts a small APK completes phases 2+3 in under 60 seconds.
 
+**Phase 12 new tests:**
+1. ADB health endpoint — mock `subprocess.run`, assert `/api/health/adb` returns correct JSON
+2. Monkey event count — assert monkey command uses `config.DYNAMIC_MONKEY_EVENT_COUNT`
+3. PDF Table of Contents — extract text from generated PDF, assert TOC present
+4. PDF Executive Summary — assert executive summary contains risk classification and counts
+5. CSRF token present — GET upload page, assert hidden CSRF field in HTML
+6. Dashboard single query — mock DB, assert exactly 1 query for listing analyses
+
 ---
 
-*This file is the technical reference. Any structural change requires explicit approval in the planning chat. Last updated: when this file was first written.*
+*This file is the technical reference. Any structural change requires explicit approval in the planning chat. Last updated: Phase 12 planning (UI component map §5, report format §11.1, test plan §15 updated).*

@@ -835,4 +835,125 @@ Once Phase 10 ships:
 
 ---
 
-*This file is the execution roadmap. Any phase reordering, addition, or scope change requires explicit approval in the planning chat. Last updated: Phase 10 (UI Redesign) added.*
+## Phase 12 — Polish, Dynamic Analysis UX, Report Enhancement, UI/UX Overhaul
+
+### Goal
+Make SecureAPK production-ready by fixing all audit-identified issues: make dynamic analysis fully functional with clear user feedback, harden security and code quality, enhance the PDF report to forensic best-practice standard, and polish the UI/UX across all pages.
+
+### Branch
+`phase-12-polish-and-enhancement`
+
+### Files touched
+`app.py`, `config.py`, `modules/dynamic_analyzer.py`, `modules/report_generator.py`, `modules/forensic.py`, `modules/risk_engine.py`, `modules/db_manager.py`, `modules/analyzer.py`, `templates/base.html`, `templates/index.html`, `templates/result.html`, `templates/dashboard.html`, `templates/_partials/finding_card.html`, `templates/_partials/risk_badge.html`, `static/css/main.css`, `static/css/result.css`, `static/css/dashboard.css`, `static/js/main.js`, `static/js/result.js`, `static/js/status_poller.js`, `tests/test_dynamic_analyzer.py`, `tests/test_report_generator.py`, `tests/test_forensic.py`, `README.md`
+
+### Scope — three tracks
+
+---
+
+#### Track A: Dynamic Analysis — Make It Functional
+
+**Problem:** Dynamic analysis never shows results because it silently skips when no emulator is available, the monkey command uses hardcoded `"1"` event instead of `config.DYNAMIC_MONKEY_EVENT_COUNT` (50), the logcat capture has redundant command construction, and the upload page gives no pre-validation feedback about ADB/emulator availability.
+
+**Tasks:**
+- [ ] A1. **ADB health check on upload page** — Add a `/api/health/adb` endpoint that returns `{"adb_installed": bool, "emulator_running": bool, "emulator_serial": str|null}`. The upload page JS calls this on load and when the Dynamic Analysis toggle is activated. If ADB is not installed or no emulator is running, show an inline warning banner below the toggle: "⚠ No Android emulator detected — dynamic analysis will be skipped. Start an emulator via Android Studio → Device Manager." Do NOT disable the toggle (user may start emulator after page load).
+- [ ] A2. **Fix monkey event count** — In `dynamic_analyzer.py`, replace the hardcoded `"1"` in the monkey command (around line 113) with `str(config.DYNAMIC_MONKEY_EVENT_COUNT)` so the configured 50 events run instead of 1.
+- [ ] A3. **Fix redundant logcat command construction** — In `dynamic_analyzer.py`, remove the lines that add `-d` to the logcat command and then immediately remove it (lines ~200-203). Build the command correctly in one pass.
+- [ ] A4. **Use `start_new_session=True` instead of `preexec_fn=os.setsid`** — Replace the deprecated/unsafe `preexec_fn=os.setsid` in the logcat subprocess (line ~211) with `start_new_session=True` for thread safety.
+- [ ] A5. **Improve dynamic analysis skip UX** — On the result page dynamic tab, when status is `skipped_no_emulator`, show a prominent info banner with setup instructions and a link to re-analyze, not just the current muted paragraph. Add a visual distinction between "not enabled" and "enabled but skipped."
+- [ ] A6. **Extend logcat window** — Add `DYNAMIC_LOGCAT_SETTLE_SECONDS = 5` to `config.py`. After monkey completes, wait this settle time before terminating logcat capture to catch late-arriving events.
+
+---
+
+#### Track B: Security & Code Quality Fixes
+
+**Problem:** Audit identified hardcoded SECRET_KEY, missing CSRF protection, thread-unsafe global mutable state, dead code, private method called from outside its module, N+1 query pattern, and hashlib calls without `usedforsecurity=False`.
+
+**Tasks:**
+- [ ] B1. **Generate random SECRET_KEY** — In `config.py`, change the default SECRET_KEY from the hardcoded string to `os.urandom(32).hex()` when no environment variable is set. This means each restart gets a new key (acceptable for single-user local app; sessions reset on restart).
+- [ ] B2. **Add CSRF protection** — Add Flask-WTF's `CSRFProtect` to `app.py`. Add `{{ csrf_token() }}` hidden field to the upload form in `index.html`. This is the only form that does a POST.
+- [ ] B3. **Fix thread-safety in report_generator.py** — Remove the global mutable `_generation_stamp` variable (line ~51). Pass the generation timestamp as a parameter through the function chain instead of mutating module-level state.
+- [ ] B4. **Make `_sbp_findings_as_findings()` public** — Rename to `sbp_findings_as_findings()` (drop the leading underscore) in `risk_engine.py`. Update the callers in `app.py` and `report_generator.py`.
+- [ ] B5. **Remove dead code in forensic.py** — Delete `format_audit_for_pdf()` (lines ~67-87) which is never called from anywhere in the codebase.
+- [ ] B6. **Fix hashlib calls in forensic.py** — Add `usedforsecurity=False` to `hashlib.sha1()` and `hashlib.md5()` calls (lines ~36-37) since these are used for integrity fingerprinting, not security.
+- [ ] B7. **Fix N+1 query in dashboard** — Replace the per-row query pattern in `app.py` dashboard route (lines ~191-192) with a single query that joins or batches the data needed for all analyses.
+- [ ] B8. **Fix dual-key mapping in db_manager.py** — In `save_runtime_events()` (lines ~400-418), standardize on a single key name (`event_category`) instead of the fragile `e.get("category") or e.get("event_category")` pattern. Update callers to use the canonical key.
+
+---
+
+#### Track C: PDF Report Enhancement
+
+**Problem:** The current PDF report lacks several standard forensic report sections: Table of Contents, Executive Summary, Section Numbering, Conclusion & Recommendations, Scope & Limitations, Legal Disclaimer, and Severity Distribution Chart. The methodology text hardcodes "34 vulnerability detection patterns" instead of computing the count dynamically.
+
+**Tasks:**
+- [ ] C1. **Add Table of Contents** — Use ReportLab's `TableOfContents` flowable. Each major section (Evidence Identification, Risk Summary, Manifest Findings, Source Code Findings, Dynamic Findings, SBP Compliance, Appendices) gets a TOC entry. Place TOC after the cover page.
+- [ ] C2. **Add Executive Summary** — One-page summary after the TOC: risk classification, total findings by severity (HIGH/MEDIUM/LOW counts), top 3 issues, OWASP categories triggered, and a one-sentence recommendation. This gives the reader the key takeaway without reading the full report.
+- [ ] C3. **Add Section Numbering** — Prefix all major body sections with sequential numbers (1. Risk Summary, 2. Manifest Analysis, 3. Source Code Analysis, etc.). Subsections get 1.1, 1.2 numbering.
+- [ ] C4. **Add Conclusion & Recommendations section** — After the findings sections and before appendices. Summarize: total findings, classification, top 3 actionable recommendations derived from the highest-severity findings, and a statement about the analysis scope.
+- [ ] C5. **Add Scope & Limitations section** — After the methodology statement. Document: what was analyzed (static manifest + source, optional dynamic + SBP), what was NOT analyzed (obfuscated code beyond pattern matching, native .so libraries, server-side APIs), and tool limitations (no Frida instrumentation, emulator-only dynamic analysis).
+- [ ] C6. **Add Legal Disclaimer** — Footer on the cover page: "This report is generated for educational and authorized security assessment purposes only. The tool operators bear responsibility for ensuring lawful use."
+- [ ] C7. **Add Severity Distribution Chart** — Use ReportLab's `Drawing` with a horizontal bar chart showing HIGH/MEDIUM/LOW finding counts by color in the Executive Summary section. Keeps the deterministic PDF guarantee (no external image rendering).
+- [ ] C8. **Dynamic pattern count** — Replace hardcoded "34 vulnerability detection patterns" in the methodology text (line ~286) with `len(VULN_PATTERNS)` computed at report generation time.
+- [ ] C9. **Add Findings Summary Table** — At the start of each findings section (Manifest, Source, Dynamic), add a summary table: Category | Count | Highest Severity. Lets the reader scan without reading every card.
+
+---
+
+#### Track D: UI/UX Design Enhancements
+
+**Problem:** The UI is functional but can be polished for a better user experience, especially the result page navigation, the dashboard performance perception, and the upload flow feedback.
+
+**Tasks:**
+- [ ] D1. **Upload progress indicator** — After clicking "Start Analysis →", replace the button text with a spinner and "Uploading…" to give immediate feedback. Prevent double-submit.
+- [ ] D2. **Analysis progress enhancement** — On the result page while analysis is running, show a multi-step progress indicator that highlights the current phase (Manifest → Source → Dynamic → SBP → Risk → Report) instead of just a single progress bar.
+- [ ] D3. **Tab persistence via URL hash** — When the user clicks a tab on the result page, update the URL hash (`#source`, `#dynamic`, etc.). On page load, read the hash and activate the corresponding tab. This makes tab state shareable and survives page refresh.
+- [ ] D4. **Dashboard loading state** — Show a skeleton/shimmer loading state while the dashboard table loads, especially if query performance improves from B7.
+- [ ] D5. **Responsive improvements** — Ensure the result page tabs stack vertically on mobile viewports (< 768px). The meta-grid should switch from 2-column to 1-column. Finding cards should use full width.
+- [ ] D6. **Empty state improvements** — For each tab that shows "No findings from X analysis", add a more descriptive empty state with an icon and explanation of what would have triggered findings.
+- [ ] D7. **Severity color consistency** — Audit all severity-related CSS classes across `main.css`, `result.css`, and `dashboard.css` to ensure HIGH/MEDIUM/LOW colors are consistent everywhere (currently some use different shades).
+- [ ] D8. **Print stylesheet** — Add a `@media print` stylesheet that hides the navigation, sidebar, and interactive elements, and formats the result page for clean printing (alternative to PDF download for quick reviews).
+
+---
+
+### Acceptance criteria
+1. Dynamic analysis toggle on the upload page shows an ADB status indicator
+2. When no emulator is available, the result page clearly communicates why dynamic analysis was skipped with setup instructions
+3. Monkey command runs 50 events (the config value) instead of 1
+4. `SECRET_KEY` is randomly generated per startup unless set via environment variable
+5. Upload form includes CSRF protection
+6. No global mutable state in `report_generator.py`
+7. `_sbp_findings_as_findings` is renamed to drop the underscore
+8. `format_audit_for_pdf()` dead code is removed from `forensic.py`
+9. Dashboard loads all analyses in a single query (no N+1)
+10. PDF report contains: Table of Contents, Executive Summary, Section Numbering, Conclusion & Recommendations, Scope & Limitations, Legal Disclaimer, Severity Distribution Chart
+11. Methodology text dynamically computes pattern count
+12. Upload button shows loading state during submission
+13. Result page tabs persist via URL hash
+14. All severity colors are consistent across the UI
+15. `pytest tests/ -v` shows **50 or more** tests passing
+16. No regressions — all existing 46 tests still pass
+
+### Tests required (at least 4 new)
+1. **ADB health endpoint** — Mock `subprocess.run` for `adb devices`, assert `/api/health/adb` returns correct JSON structure for both "emulator present" and "no emulator" cases
+2. **Monkey event count** — Assert the monkey command constructed by `dynamic_analyzer.py` contains `str(config.DYNAMIC_MONKEY_EVENT_COUNT)` not `"1"`
+3. **PDF Table of Contents** — Generate a test PDF, extract text, assert "Table of Contents" section exists and lists expected section names
+4. **PDF Executive Summary** — Generate a test PDF, assert the executive summary contains risk classification, finding counts, and top issues
+5. **CSRF token present** — GET the upload page, assert the response HTML contains a CSRF token hidden field
+6. **Dashboard single query** — Mock the DB, assert the dashboard route makes exactly 1 database call for listing analyses (not 1 + N)
+
+### Done definition
+PR opened from `phase-12-polish-and-enhancement` titled `Phase 12: Polish, Dynamic Analysis UX, Report Enhancement, UI/UX Overhaul`. PR description: each acceptance criterion ticked, before/after screenshots of UI changes, sample PDF with new sections highlighted, total test count (50+). SCRATCHPAD updated with Phase 12 entry.
+
+---
+
+## After Phase 12
+
+Once Phase 12 ships:
+1. SecureAPK is feature-complete and production-ready for FYP submission
+2. **Tag release `v2.0.0`** — major version bump reflecting forensic report overhaul + UI polish
+3. **Refresh all SOP screenshots** to match the final UI state
+4. **Update Chapter 6 (Implementation) of the FYP documentation** with the enhanced PDF format and UI screenshots
+5. **Final viva rehearsal** — walk through every demo checklist item in README with the polished version
+6. **Freeze code** — no further changes until after viva unless a critical bug is found
+
+---
+
+*This file is the execution roadmap. Any phase reordering, addition, or scope change requires explicit approval in the planning chat. Last updated: Phase 12 (Polish, Dynamic Analysis UX, Report Enhancement, UI/UX Overhaul) added.*
