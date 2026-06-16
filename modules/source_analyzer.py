@@ -94,7 +94,7 @@ def _scan_java_tree(root: Path) -> tuple[list[dict[str, Any]], int]:
         except OSError:
             continue
         lines = text.splitlines()
-        rel = str(java.relative_to(root))
+        rel = java.relative_to(root).as_posix()
 
         for pattern, rx in compiled:
             key = (pattern["id"], rel)
