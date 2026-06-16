@@ -1550,4 +1550,90 @@ polish if the audit-log lookup proves clumsy.
 
 ---
 
+---
+
+## Session: Phase 12 Planning — Full Audit & Enhancement Plan
+
+**Date:** 2026-06-16
+**Triggered by:** User requested comprehensive audit + plan for fixing dynamic analysis, UI/UX enhancements, and report format improvements.
+**Branch:** `claude/sweet-galileo-lw6omp` (planning), execution will use `phase-12-polish-and-enhancement`
+
+### Audit findings summary
+
+**Security issues (7):**
+1. Hardcoded `SECRET_KEY` in `config.py` (line 39) — default is a predictable string
+2. No CSRF protection on the upload form — single POST endpoint is unprotected
+3. Thread-unsafe `preexec_fn=os.setsid` in `dynamic_analyzer.py` (line ~211)
+4. Thread-unsafe global mutable `_generation_stamp` in `report_generator.py` (line ~51)
+5. `hashlib.sha1()` and `hashlib.md5()` in `forensic.py` (lines ~36-37) without `usedforsecurity=False`
+6. No input sanitization on `analyst_name` field beyond `maxlength=100`
+7. Upload route accepts `dynamic_enabled=True` without checking ADB availability
+
+**Code quality issues (7):**
+1. Dead code: `format_audit_for_pdf()` in `forensic.py` (lines ~67-87) — never called
+2. Private method `_sbp_findings_as_findings()` in `risk_engine.py` called from `app.py` and `report_generator.py`
+3. N+1 query pattern in dashboard route (`app.py` lines ~191-192)
+4. Monkey command hardcodes `"1"` event instead of using `config.DYNAMIC_MONKEY_EVENT_COUNT` (50)
+5. Redundant logcat command construction in `dynamic_analyzer.py` (adds `-d` then removes it)
+6. Fragile dual-key mapping in `db_manager.py` `save_runtime_events()` — `e.get("category") or e.get("event_category")`
+7. Hardcoded "34 vulnerability detection patterns" in report methodology text (line ~286)
+
+**Report format gaps (9):**
+1. Missing Table of Contents
+2. Missing Executive Summary
+3. Missing Section Numbering
+4. Missing Conclusion & Recommendations
+5. Missing Scope & Limitations
+6. Missing Legal Disclaimer
+7. Missing Severity Distribution Chart
+8. Missing Findings Summary Tables (per-section)
+9. Hardcoded pattern count instead of dynamic `len(VULN_PATTERNS)`
+
+**UI/UX improvements needed (8):**
+1. No ADB/emulator pre-validation on upload page
+2. Poor dynamic analysis "skipped" messaging on result page
+3. No upload submission loading indicator
+4. No multi-step progress indicator during analysis
+5. Tab state not persisted in URL hash
+6. No dashboard loading state
+7. Inconsistent severity colors across stylesheets
+8. No print stylesheet
+
+**Documentation fixes (3):**
+1. README viva checklist says "42 tests" — actual count is 46
+2. README line 86 says "200 MB" upload limit — actual is 100 MB
+3. README references `D-1 through D-23` but scratchpad has up to D-29
+
+### Decisions made
+
+**D-30: Phase 12 scope — four tracks**
+Organized the enhancement work into four parallel tracks:
+- Track A: Dynamic Analysis functional fixes (6 tasks)
+- Track B: Security & Code Quality fixes (8 tasks)
+- Track C: PDF Report Enhancement (9 tasks)
+- Track D: UI/UX Design Enhancements (8 tasks)
+This keeps each track independently reviewable while sharing a single phase.
+
+**D-31: CSRF approach — Flask-WTF CSRFProtect**
+Using Flask-WTF's `CSRFProtect` for CSRF protection. Only one form does a POST (upload), so the surface area is small. Requires adding `flask-wtf` to `requirements.txt` (needs approval per CLAUDE.md §4 locked stack — but CSRFProtect is a standard Flask companion, not an architectural change).
+
+**D-32: SECRET_KEY generation — `os.urandom(32).hex()`**
+Defaulting to random SECRET_KEY per startup instead of persisting to file. Acceptable because: single-user local app, sessions resetting on restart is fine, no remember-me functionality.
+
+**D-33: Report enhancements use ReportLab only**
+All new PDF sections (TOC, charts, etc.) use ReportLab Platypus flowables — no external charting libraries. The severity chart uses `reportlab.graphics.shapes.Drawing` with colored rectangles. This preserves deterministic PDF generation and stays within the locked tech stack.
+
+### Test count projection
+Current: 46 tests passing
+Phase 12 adds: ~6 new tests (ADB health endpoint, monkey event count, PDF TOC, PDF executive summary, CSRF token, dashboard query count)
+Target: 50+ tests passing
+
+### Files updated
+- `PHASES (5).md` — Phase 12 appended with full spec
+- `SCRATCHPAD.md` — This entry
+- `ARCHITECTURE (5).md` — §5 UI component map updated, §11.1 report format updated, §15 test plan updated
+- `README.md` — Fixed test count (42→46), upload size (200→100 MB), decision log reference (D-23→D-29)
+
+---
+
 *This file is updated by Claude Code at the end of every phase session. Never closed without an update.*

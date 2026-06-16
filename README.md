@@ -83,7 +83,7 @@ pytest --cov=modules tests/            # with coverage
 ## Usage walkthrough
 
 1. **Open `http://127.0.0.1:5000`.** You'll see a dark-themed upload page.
-2. **Drag or pick an APK** (size limited to 200 MB).
+2. **Drag or pick an APK** (size limited to 100 MB).
 3. **Toggle options:**
    - *Enable Dynamic Analysis* — only if you have a running Android emulator.
    - *Enable SBP Banking Compliance Check* — runs the SBP rule pack (recommended for any Pakistani banking app).
@@ -215,7 +215,7 @@ Run through this list before the panel. Each item is a thing you should be able 
 - [ ] Upload an APK with Educational Mode → click the expand button on a source finding, show the three panels live.
 - [ ] Download the PDF → open in a viewer → verify the SHA-256 on the cover matches `sha256sum <your.apk>` in a terminal.
 - [ ] `grep <hash> reports/<id>.pdf` → returns 1. Explain why the PDF isn't compressed and what this gives us forensically.
-- [ ] Run `pytest -v` → all 42 tests green in under 10 seconds.
+- [ ] Run `pytest -v` → all 46 tests green in under 10 seconds.
 
 ### Defensive answers
 
@@ -233,7 +233,7 @@ These four files are the project's source of truth — they were written before 
 - **`CLAUDE.md`** — project identity, locked tech stack, design tokens, hard rules.
 - **`ARCHITECTURE.md`** — folder tree, routes, database schema, fallback chains, data shapes.
 - **`PHASES.md`** — execution roadmap, phase by phase.
-- **`SCRATCHPAD.md`** — chronological session memory, every mid-execution decision (D-1 through D-23 logged).
+- **`SCRATCHPAD.md`** — chronological session memory, every mid-execution decision (D-1 through D-33 logged).
 
 ---
 
