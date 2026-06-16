@@ -111,7 +111,8 @@ def _run_pipeline(apk_path: str, package_name: str) -> dict[str, Any]:
         # 3. Launch via monkey ------------------------------------------
         try:
             _run([adb, "-s", emulator, "shell", "monkey", "-p", package_name,
-                  "-c", "android.intent.category.LAUNCHER", "1"], timeout=20)
+                  "-c", "android.intent.category.LAUNCHER",
+                  str(config.DYNAMIC_MONKEY_EVENT_COUNT)], timeout=60)
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
             log.warning("monkey launch failed for %s: %s", package_name, e)
             status = "partial"
@@ -119,9 +120,9 @@ def _run_pipeline(apk_path: str, package_name: str) -> dict[str, Any]:
 
         # 4. Settle, then 5. logcat capture ------------------------------
         time.sleep(3)
-        logs, logcat_seconds = _capture_logcat(
-            adb, emulator, config.DYNAMIC_LOGCAT_DURATION_SECONDS,
-        )
+        capture_duration = (config.DYNAMIC_LOGCAT_DURATION_SECONDS
+                            + config.DYNAMIC_LOGCAT_SETTLE_SECONDS)
+        logs, logcat_seconds = _capture_logcat(adb, emulator, capture_duration)
         events = _classify_logcat(logs, package_name)
 
         # 6. Best-effort permission snapshot - failure is non-fatal.
@@ -197,10 +198,7 @@ def _capture_logcat(adb: str, emulator: str, duration: int) -> tuple[str, int]:
     Uses Popen + a process group on Unix so the child tree dies together.
     Returns (combined stdout, actual elapsed seconds).
     """
-    cmd = [adb, "-s", emulator, "logcat", "-v", "time", "-d"]
-    # `-d` dumps the buffer once and exits, but we want a live tail bounded by
-    # `duration`. Drop -d and rely on time-bounded termination.
-    cmd = cmd[:-1]
+    cmd = [adb, "-s", emulator, "logcat", "-v", "time"]
 
     started = time.monotonic()
     popen_kwargs: dict[str, Any] = dict(
@@ -208,7 +206,7 @@ def _capture_logcat(adb: str, emulator: str, duration: int) -> tuple[str, int]:
         text=True,
     )
     if os.name != "nt":
-        popen_kwargs["preexec_fn"] = os.setsid
+        popen_kwargs["start_new_session"] = True
 
     try:
         proc = subprocess.Popen(cmd, **popen_kwargs)

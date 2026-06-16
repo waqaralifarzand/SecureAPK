@@ -220,6 +220,20 @@ def list_analyses() -> list[dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
+def list_analyses_with_counts() -> list[dict[str, Any]]:
+    """List all analyses with findings count in a single query (no N+1)."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT a.*, COALESCE(fc.cnt, 0) AS findings_count
+               FROM analyses a
+               LEFT JOIN (SELECT analysis_id, COUNT(*) AS cnt
+                          FROM findings GROUP BY analysis_id) fc
+                 ON fc.analysis_id = a.id
+               ORDER BY a.started_at DESC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def set_current_phase(analysis_id: str, phase: int) -> None:
     with _connect() as conn:
         conn.execute("UPDATE analyses SET current_phase = ? WHERE id = ?", (phase, analysis_id))
@@ -409,8 +423,8 @@ def save_runtime_events(analysis_id: str, events: Iterable[dict[str, Any]]) -> N
                 """,
                 (
                     analysis_id,
-                    e.get("category") or e.get("event_category"),
-                    e.get("subtype") or e.get("event_subtype"),
+                    e["category"],
+                    e.get("subtype"),
                     e.get("log_line"),
                     e.get("timestamp_in_session"),
                     e.get("severity"),

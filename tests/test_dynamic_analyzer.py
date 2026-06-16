@@ -198,3 +198,36 @@ def test_runtime_event_categories_count_is_exactly_ten():
     assert len(RUNTIME_EVENT_CATEGORIES) == 10
     ids = [c["id"] for c in RUNTIME_EVENT_CATEGORIES]
     assert len(ids) == len(set(ids))
+
+
+# --------------------------------------------------------------------------
+# Phase 12: Monkey event count uses config value, not hardcoded "1"
+# --------------------------------------------------------------------------
+
+def test_monkey_command_uses_config_event_count(monkeypatch, tmp_path):
+    import config
+    apk = tmp_path / "x.apk"
+    apk.write_bytes(b"unused")
+
+    monkey_cmds: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1:3] == ["devices"]:
+            return _devices_with_emulator()
+        if "monkey" in cmd:
+            monkey_cmds.append(list(cmd))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    def fake_popen(cmd, **kwargs):
+        return _PopenStub("")
+
+    monkeypatch.setattr(dynamic_analyzer.subprocess, "run", fake_run)
+    monkeypatch.setattr(dynamic_analyzer.subprocess, "Popen", fake_popen)
+
+    dynamic_analyzer.analyze(str(apk), package_name="com.demo.app")
+
+    assert monkey_cmds, "monkey command should have been invoked"
+    event_count_arg = monkey_cmds[0][-1]
+    assert event_count_arg == str(config.DYNAMIC_MONKEY_EVENT_COUNT), (
+        f"expected {config.DYNAMIC_MONKEY_EVENT_COUNT}, got {event_count_arg}"
+    )

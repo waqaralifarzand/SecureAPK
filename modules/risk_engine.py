@@ -36,11 +36,11 @@ def compute(analysis_id: str) -> dict[str, Any]:
     the `sbp` bucket in `breakdown_by_phase` accumulates naturally.
     """
     findings = list(db_manager.get_findings(analysis_id))
-    findings.extend(_sbp_findings_as_findings(analysis_id))
+    findings.extend(sbp_findings_as_findings(analysis_id))
     return compute_from_findings(findings)
 
 
-def _sbp_findings_as_findings(analysis_id: str) -> list[dict[str, Any]]:
+def sbp_findings_as_findings(analysis_id: str) -> list[dict[str, Any]]:
     rows = db_manager.get_sbp_findings(analysis_id, status_filter="NON_COMPLIANT")
     out: list[dict[str, Any]] = []
     for r in rows:

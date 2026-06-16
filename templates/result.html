@@ -150,9 +150,13 @@
 
 <section class="tab-panel" data-tab-panel="dynamic">
   {% if not analysis.dynamic_enabled %}
-  <div class="panel">
+  <div class="panel panel-neutral">
     <h2>Dynamic Analysis</h2>
-    <p class="muted">Dynamic analysis was not enabled for this scan.</p>
+    <div class="empty-state">
+      <span class="empty-state-icon">&#128241;</span>
+      <p>Dynamic analysis was not enabled for this scan.</p>
+      <p class="muted">To include runtime monitoring, re-upload the APK with the Dynamic Analysis toggle enabled.</p>
+    </div>
   </div>
   {% else %}
   {% set banner_class = 'banner-ok' if dynamic_status == 'completed'
@@ -168,9 +172,20 @@
       <dt>Findings</dt><dd>{{ dynamic_findings|length }}</dd>
     </dl>
     {% if dynamic_status and dynamic_status.startswith('skipped') %}
-    <p class="muted">No emulator was reachable (or install failed). Start an Android
-    emulator via <em>Android Studio &rarr; Device Manager</em> and re-upload the
-    APK with Dynamic Analysis enabled.</p>
+    <div class="dynamic-skip-banner">
+      <h3>&#9888; Emulator Not Available</h3>
+      <p>Dynamic analysis was enabled but could not run because no Android emulator was detected.</p>
+      <div class="skip-instructions">
+        <p><strong>To enable dynamic analysis:</strong></p>
+        <ol>
+          <li>Open <strong>Android Studio &rarr; Device Manager</strong></li>
+          <li>Start an AVD (Android Virtual Device)</li>
+          <li>Verify with <code>adb devices</code> in your terminal</li>
+          <li>Re-upload the APK with Dynamic Analysis enabled</li>
+        </ol>
+      </div>
+      <a class="btn btn-primary btn-sm" href="{{ url_for('index') }}">&#8592; Re-analyze with emulator</a>
+    </div>
     {% endif %}
   </div>
 
@@ -335,13 +350,29 @@
 <script src="{{ url_for('static', filename='js/status_poller.js') }}"></script>
 {% else %}
 <script>
-  document.querySelectorAll('.tab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const target = btn.dataset.tab;
-      document.querySelectorAll('.tab').forEach(b => b.classList.toggle('tab-active', b === btn));
-      document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('tab-panel-active', p.dataset.tabPanel === target));
+  function activateTab(target) {
+    document.querySelectorAll('.tab').forEach(function(b) {
+      b.classList.toggle('tab-active', b.dataset.tab === target);
+    });
+    document.querySelectorAll('.tab-panel').forEach(function(p) {
+      p.classList.toggle('tab-panel-active', p.dataset.tabPanel === target);
+    });
+  }
+
+  document.querySelectorAll('.tab').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var target = btn.dataset.tab;
+      activateTab(target);
+      history.replaceState(null, '', '#' + target);
     });
   });
+
+  // Restore tab from URL hash on page load
+  if (window.location.hash) {
+    var hashTab = window.location.hash.substring(1);
+    var btn = document.querySelector('.tab[data-tab="' + hashTab + '"]');
+    if (btn) activateTab(hashTab);
+  }
 </script>
 {% if analysis.educational_enabled %}
 <script src="{{ url_for('static', filename='js/result.js') }}"></script>

@@ -34,8 +34,8 @@ def compute_sha256(filepath: str) -> str:
 def compute_multi_hash(filepath: str) -> dict[str, str]:
     """Read a file once and return SHA-256, SHA-1, and MD5 hex digests."""
     sha256 = hashlib.sha256()
-    sha1 = hashlib.sha1()
-    md5 = hashlib.md5()
+    sha1 = hashlib.sha1(usedforsecurity=False)
+    md5 = hashlib.md5(usedforsecurity=False)
     with open(filepath, "rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
             sha256.update(chunk)
@@ -62,29 +62,6 @@ def audit(action: str, analysis_id: str, actor: str = "system", details: Any = N
 def get_chain_of_custody(analysis_id: str) -> list[dict[str, Any]]:
     """Return audit_log entries for the analysis in chronological order."""
     return db_manager.get_audit_log(analysis_id)
-
-
-def format_audit_for_pdf(entries: list[dict[str, Any]]) -> list[list[str]]:
-    """Flatten audit_log rows into [timestamp, action, details] string rows
-    ready for a ReportLab Table."""
-    rows: list[list[str]] = []
-    for e in entries:
-        ts = str(e.get("timestamp") or "")
-        action = str(e.get("action") or "")
-        details_raw = e.get("details")
-        if details_raw is None or details_raw == "":
-            details = ""
-        else:
-            try:
-                obj = json.loads(details_raw) if isinstance(details_raw, str) else details_raw
-                if isinstance(obj, dict):
-                    details = ", ".join(f"{k}={obj[k]}" for k in obj)
-                else:
-                    details = str(obj)
-            except (ValueError, TypeError):
-                details = str(details_raw)
-        rows.append([ts, action, details])
-    return rows
 
 
 # --------------------------------------------------------------------------

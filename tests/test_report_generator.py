@@ -143,3 +143,42 @@ def test_regeneration_is_byte_identical(tmp_db, tmp_path, monkeypatch):
     p1 = open(report_generator.generate(aid), "rb").read()
     p2 = open(report_generator.generate(aid), "rb").read()
     assert p1 == p2
+
+
+# --------------------------------------------------------------------------
+# Phase 12: Executive Summary present in PDF
+# --------------------------------------------------------------------------
+
+def test_pdf_contains_executive_summary(tmp_db, tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "REPORTS_PATH", tmp_path / "reports")
+    apk = tmp_path / "x.apk"
+    apk.write_bytes(b"executive summary test")
+    aid, _ = _seed_analysis(str(apk))
+
+    pdf_path = report_generator.generate(aid)
+    blob = open(pdf_path, "rb").read()
+
+    assert b"Executive Summary" in blob
+    assert b"Severity Distribution" in blob
+    assert b"Scope and Limitations" in blob
+    assert b"Conclusion and Recommendations" in blob
+
+
+# --------------------------------------------------------------------------
+# Phase 12: Dynamic pattern count in methodology text
+# --------------------------------------------------------------------------
+
+def test_methodology_uses_dynamic_pattern_count(tmp_db, tmp_path, monkeypatch):
+    from modules.patterns.vuln_patterns import VULN_PATTERNS
+    monkeypatch.setattr(config, "REPORTS_PATH", tmp_path / "reports")
+    apk = tmp_path / "x.apk"
+    apk.write_bytes(b"pattern count test")
+    aid, _ = _seed_analysis(str(apk))
+
+    pdf_path = report_generator.generate(aid)
+    blob = open(pdf_path, "rb").read()
+
+    expected = f"{len(VULN_PATTERNS)} vulnerability detection patterns"
+    assert expected.encode() in blob, (
+        f"expected '{expected}' in PDF body"
+    )

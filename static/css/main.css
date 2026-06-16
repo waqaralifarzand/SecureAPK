@@ -403,6 +403,32 @@ table tbody tr:hover { background: var(--bg-elevated); }
 .empty-state h2 { color: var(--text-primary); margin-bottom: 4px; }
 .empty-state .btn-primary { margin-top: 16px; }
 
+/* ---------- ADB Status Indicator ---------- */
+.adb-status {
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-top: 6px;
+  margin-bottom: 4px;
+}
+.adb-checking { background: var(--bg-surface); color: var(--text-secondary); }
+.adb-warn { background: rgba(250, 173, 20, 0.12); color: #faad14; border: 1px solid rgba(250, 173, 20, 0.3); }
+.adb-ok { background: rgba(82, 196, 26, 0.12); color: #52c41a; border: 1px solid rgba(82, 196, 26, 0.3); }
+
+/* ---------- Upload Spinner ---------- */
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 880px) {
   .feature-grid { grid-template-columns: repeat(2, 1fr); }
@@ -412,4 +438,13 @@ table tbody tr:hover { background: var(--bg-elevated); }
 @media (max-width: 520px) {
   .feature-grid { grid-template-columns: 1fr; }
   .hero-title { font-size: 34px; }
+}
+
+/* ---------- Print ---------- */
+@media print {
+  .site-header, .site-nav, .site-footer, .btn, .tabs,
+  .upload-card, .pipeline, .feature-grid, .hero { display: none !important; }
+  .tab-panel { display: block !important; opacity: 1 !important; }
+  .panel { break-inside: avoid; border: 1px solid #ccc; margin-bottom: 12px; }
+  body { background: #fff; color: #000; }
 }

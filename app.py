@@ -10,6 +10,7 @@ from pathlib import Path
 from flask import (
     Flask, abort, jsonify, redirect, render_template, request, send_file, url_for,
 )
+from flask_wtf.csrf import CSRFProtect
 from werkzeug.utils import secure_filename
 
 import config
@@ -21,6 +22,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = config.MAX_UPLOAD_SIZE_MB * 1024 * 1024
 app.config["SECRET_KEY"] = config.SECRET_KEY
+csrf = CSRFProtect(app)
 
 
 @app.context_processor
@@ -134,7 +136,7 @@ def view_analysis(analysis_id: str):
     # `risk_engine.compute()` by appending SBP non-compliant findings into the
     # in-memory list before scoring.
     if analysis["status"] == "completed":
-        risk_findings = list(findings) + risk_engine._sbp_findings_as_findings(analysis_id)
+        risk_findings = list(findings) + risk_engine.sbp_findings_as_findings(analysis_id)
         risk = risk_engine.compute_from_findings(risk_findings)
     else:
         risk = None
@@ -183,13 +185,7 @@ def download_report(analysis_id: str):
 
 @app.route("/dashboard")
 def dashboard():
-    analyses = db_manager.list_analyses()
-    # Phase 10 redesign: the dashboard table has a "Vulnerabilities" column.
-    # That count isn't a column on the analyses row, so attach it per-row from
-    # the existing findings table (read-only; no schema or route-signature
-    # change). See SCRATCHPAD Phase 10 entry.
-    for a in analyses:
-        a["findings_count"] = len(db_manager.get_findings(a["id"]))
+    analyses = db_manager.list_analyses_with_counts()
     return render_template("dashboard.html", analyses=analyses)
 
 
@@ -242,27 +238,46 @@ def health():
     })
 
 
+@app.route("/api/health/adb")
+@csrf.exempt
+def api_health_adb():
+    adb = config.ADB_PATH or "adb"
+    adb_installed = _binary_present(adb)
+    emulator_serial = None
+    if adb_installed:
+        emulator_serial = _emulator_serial(adb)
+    return jsonify({
+        "adb_installed": adb_installed,
+        "emulator_running": emulator_serial is not None,
+        "emulator_serial": emulator_serial,
+    })
+
+
 def _binary_present(name: str) -> bool:
     return shutil.which(name) is not None
 
 
-def _emulator_running() -> bool:
-    adb = config.ADB_PATH or "adb"
+def _emulator_serial(adb: str) -> str | None:
+    """Return the first online device serial, or None."""
     if shutil.which(adb) is None:
-        return False
+        return None
     try:
         out = subprocess.run(
             [adb, "devices"], capture_output=True, text=True, timeout=5,
         )
     except (subprocess.TimeoutExpired, OSError):
-        return False
+        return None
     if out.returncode != 0:
-        return False
-    # Parse "List of devices attached\n<id>\tdevice\n"
+        return None
     for line in out.stdout.splitlines()[1:]:
         if line.strip().endswith("device"):
-            return True
-    return False
+            return line.strip().split()[0]
+    return None
+
+
+def _emulator_running() -> bool:
+    adb = config.ADB_PATH or "adb"
+    return _emulator_serial(adb) is not None
 
 
 @app.errorhandler(413)
