@@ -1,4 +1,5 @@
 flask>=3.0,<4.0
+flask-wtf>=1.2
 pyaxmlparser>=0.3.27
 reportlab>=4.0
 pytest>=8.0

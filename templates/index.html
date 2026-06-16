@@ -49,7 +49,8 @@
     <div class="alert alert-error">{{ error }}</div>
   {% endif %}
 
-  <form class="upload-form" method="POST" action="{{ url_for('upload') }}" enctype="multipart/form-data">
+  <form class="upload-form" method="POST" action="{{ url_for('upload') }}" enctype="multipart/form-data" id="upload-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label class="dropzone" id="dropzone" for="apk_file">
       <span class="dropzone-icon" aria-hidden="true">&#128230;</span>
       <span class="dropzone-label">Drag &amp; drop your APK file here</span>
@@ -69,13 +70,14 @@
       <legend>Analysis Options</legend>
 
       <label class="toggle">
-        <input type="checkbox" name="dynamic_enabled" value="1">
+        <input type="checkbox" name="dynamic_enabled" value="1" id="dynamic-toggle">
         <span class="toggle-switch" aria-hidden="true"></span>
         <span class="toggle-text">
           <span class="toggle-name">Enable Dynamic Analysis</span>
           <span class="toggle-note muted">requires Android emulator via ADB</span>
         </span>
       </label>
+      <div id="adb-status" class="adb-status" hidden></div>
 
       <label class="toggle">
         <input type="checkbox" name="sbp_enabled" value="1">

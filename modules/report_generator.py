@@ -29,6 +29,7 @@ from reportlab.platypus import (
 import config
 from modules import db_manager, educational, forensic, risk_engine
 from modules.patterns.owasp_cwe_map import OWASP_MTW10_2024
+from modules.patterns.vuln_patterns import VULN_PATTERNS
 
 log = logging.getLogger(__name__)
 
@@ -48,40 +49,41 @@ _SEVERITY_RANK = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
 
 _PAGE_W, _PAGE_H = A4
 
-_generation_stamp = ""
 
+def _make_numbered_canvas(generation_stamp: str):
+    """Factory that returns a Canvas subclass with the stamp baked in."""
 
-class _NumberedCanvas(pdfgen_canvas.Canvas):
-    """Canvas subclass that draws ``Page X of Y`` + generation timestamp
-    on every page.  The total page count is only known after the document
-    is fully laid out, so we defer the footer draw to ``save()``."""
+    class _NumberedCanvas(pdfgen_canvas.Canvas):
+        """Draws ``Page X of Y`` + generation timestamp on every page."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._saved_pages: list = []
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._saved_pages: list = []
 
-    def showPage(self):
-        self._saved_pages.append(dict(self.__dict__))
-        super().showPage()
-
-    def save(self):
-        total = len(self._saved_pages)
-        for idx, state in enumerate(self._saved_pages):
-            self.__dict__.update(state)
-            self._draw_footer(idx + 1, total)
+        def showPage(self):
+            self._saved_pages.append(dict(self.__dict__))
             super().showPage()
-        super().save()
 
-    def _draw_footer(self, page_num: int, total: int) -> None:
-        self.saveState()
-        self.setFont("Helvetica", 8)
-        self.setFillColor(colors.HexColor("#57606a"))
-        self.drawString(2 * cm, 1.2 * cm, f"Page {page_num} of {total}")
-        self.drawRightString(
-            _PAGE_W - 2 * cm, 1.2 * cm,
-            f"Generated: {_generation_stamp}",
-        )
-        self.restoreState()
+        def save(self):
+            total = len(self._saved_pages)
+            for idx, state in enumerate(self._saved_pages):
+                self.__dict__.update(state)
+                self._draw_footer(idx + 1, total)
+                super().showPage()
+            super().save()
+
+        def _draw_footer(self, page_num: int, total: int) -> None:
+            self.saveState()
+            self.setFont("Helvetica", 8)
+            self.setFillColor(colors.HexColor("#57606a"))
+            self.drawString(2 * cm, 1.2 * cm, f"Page {page_num} of {total}")
+            self.drawRightString(
+                _PAGE_W - 2 * cm, 1.2 * cm,
+                f"Generated: {generation_stamp}",
+            )
+            self.restoreState()
+
+    return _NumberedCanvas
 
 
 # --------------------------------------------------------------------------
@@ -90,8 +92,7 @@ class _NumberedCanvas(pdfgen_canvas.Canvas):
 
 def generate(analysis_id: str) -> str:
     """Build the PDF and return the saved path."""
-    global _generation_stamp
-    _generation_stamp = forensic.now_iso8601_with_tz()
+    generation_stamp = forensic.now_iso8601_with_tz()
 
     analysis = db_manager.get_analysis(analysis_id)
     if not analysis:
@@ -104,7 +105,7 @@ def generate(analysis_id: str) -> str:
     audit_entries = forensic.get_chain_of_custody(analysis_id)
     sbp_rules = (db_manager.get_sbp_findings(analysis_id)
                  if analysis.get("sbp_enabled") else [])
-    risk_findings = list(findings) + risk_engine._sbp_findings_as_findings(analysis_id)
+    risk_findings = list(findings) + risk_engine.sbp_findings_as_findings(analysis_id)
     risk = risk_engine.compute_from_findings(risk_findings)
 
     apk_path = analysis.get("apk_path") or ""
@@ -135,24 +136,31 @@ def generate(analysis_id: str) -> str:
     styles = _build_styles()
     story: list = []
 
-    _build_cover(story, styles, analysis, hashes, env)
+    manifest_findings = [f for f in findings if f["phase"] == 2]
+    source_findings = [f for f in findings if f["phase"] == 3]
+    dynamic_findings = [f for f in findings if f["phase"] == 4]
+
+    _build_cover(story, styles, analysis, hashes, env, generation_stamp)
+    _build_executive_summary(story, styles, risk, findings, analysis)
+    _build_scope_and_limitations(story, styles, analysis)
     _build_risk_summary(story, styles, risk)
     _build_manifest_section(story, styles, analysis, permissions, exported,
-                            [f for f in findings if f["phase"] == 2])
+                            manifest_findings)
     _build_source_section(
-        story, styles, [f for f in findings if f["phase"] == 3],
+        story, styles, source_findings,
         educational_enabled=bool(analysis.get("educational_enabled")),
     )
     if analysis.get("dynamic_enabled"):
-        _build_dynamic_section(story, styles, runtime_events,
-                               [f for f in findings if f["phase"] == 4])
+        _build_dynamic_section(story, styles, runtime_events, dynamic_findings)
     if analysis.get("sbp_enabled"):
         _build_sbp_section(story, styles, sbp_rules)
     _build_owasp_cwe_section(story, styles, risk)
+    _build_conclusion(story, styles, risk, analysis)
     _build_chain_of_custody_appendix(story, styles, audit_entries)
     _build_verification_appendix(story, styles, analysis, hashes)
 
-    doc.build(story, canvasmaker=_NumberedCanvas)
+    canvas_cls = _make_numbered_canvas(generation_stamp)
+    doc.build(story, canvasmaker=canvas_cls)
 
     return str(out_path)
 
@@ -206,7 +214,7 @@ def _build_styles() -> dict:
 # Cover page — 5 forensic blocks
 # --------------------------------------------------------------------------
 
-def _build_cover(story, styles, analysis, hashes, env):
+def _build_cover(story, styles, analysis, hashes, env, generation_stamp):
     # Block 1: Tool identification
     story.append(Paragraph("SecureAPK", styles["Title"]))
     story.append(Paragraph(
@@ -214,7 +222,7 @@ def _build_cover(story, styles, analysis, hashes, env):
         styles["Subtitle"],
     ))
     story.append(Paragraph(
-        f"Report generated: {_generation_stamp}",
+        f"Report generated: {generation_stamp}",
         styles["Muted"],
     ))
     story.append(Spacer(1, 14))
@@ -280,7 +288,7 @@ def _build_cover(story, styles, analysis, hashes, env):
         f"acquisition and preservation of digital evidence). "
         f"Phase 2 inspected the AndroidManifest.xml file using PyAXMLParser. "
         f"Phase 3 decompiled the APK using Jadx and scanned the resulting "
-        f"Java source against 34 vulnerability detection patterns spanning "
+        f"Java source against {len(VULN_PATTERNS)} vulnerability detection patterns spanning "
         f"nine categories. Phase 4 {dynamic_word} dynamic runtime analysis "
         f"in an isolated Android emulator. Phase 5 computed a weighted risk "
         f"score and mapped findings to OWASP Mobile Top 10 (2024) and CWE "
@@ -299,6 +307,15 @@ def _build_cover(story, styles, analysis, hashes, env):
         ["Tool version", f"{config.TOOL_NAME} {config.TOOL_VERSION}"],
     ]
     story.append(_cover_table(ts_rows))
+    story.append(Spacer(1, 20))
+
+    # Legal disclaimer
+    disclaimer = (
+        "<i>This report is generated for educational and authorized security "
+        "assessment purposes only. The tool operators bear responsibility for "
+        "ensuring lawful use. This document does not constitute legal advice.</i>"
+    )
+    story.append(Paragraph(disclaimer, styles["Muted"]))
     story.append(PageBreak())
 
 
@@ -316,7 +333,149 @@ def _cover_table(rows):
 
 
 # --------------------------------------------------------------------------
-# Body sections — unchanged from Phase 6
+# Executive Summary + Scope (Phase 12)
+# --------------------------------------------------------------------------
+
+def _build_executive_summary(story, styles, risk, findings, analysis):
+    story.append(Paragraph("Executive Summary", styles["H1"]))
+
+    classification = risk["classification"]
+    score = risk["normalized_score"]
+    total = risk["total_findings"]
+
+    high_count = sum(1 for f in findings if (f.get("severity") or "").upper() == "HIGH")
+    med_count = sum(1 for f in findings if (f.get("severity") or "").upper() == "MEDIUM")
+    low_count = sum(1 for f in findings if (f.get("severity") or "").upper() == "LOW")
+
+    apk_name = analysis.get("app_name") or analysis.get("apk_filename") or "the APK"
+    summary = (
+        f"The security analysis of <b>{_str(apk_name)}</b> identified "
+        f"<b>{total}</b> findings and assigned an overall risk classification "
+        f"of <b>{classification}</b> (score: {score}/100). "
+        f"Of these, <b>{high_count}</b> are HIGH severity, "
+        f"<b>{med_count}</b> are MEDIUM, and <b>{low_count}</b> are LOW."
+    )
+    story.append(Paragraph(summary, styles["Body"]))
+    story.append(Spacer(1, 10))
+
+    # Severity distribution chart
+    story.append(Paragraph("Severity Distribution", styles["H2"]))
+    _build_severity_chart(story, high_count, med_count, low_count)
+    story.append(Spacer(1, 10))
+
+    # Top issues
+    if risk["top_issues"]:
+        story.append(Paragraph("Top Issues", styles["H2"]))
+        for i, f in enumerate(risk["top_issues"][:3], 1):
+            story.append(Paragraph(
+                f"{i}. <b>[{f.get('severity', '')}]</b> {_str(f.get('title'))} "
+                f"— {_trim(_str(f.get('description')), 120)}",
+                styles["Body"],
+            ))
+        story.append(Spacer(1, 10))
+
+    # OWASP categories triggered
+    if risk["owasp_categories_triggered"]:
+        cats = ", ".join(
+            f"{mid} ({risk['owasp_names'].get(mid, '')})"
+            for mid in risk["owasp_categories_triggered"]
+        )
+        story.append(Paragraph(
+            f"<b>OWASP Mobile Top 10 categories triggered:</b> {cats}",
+            styles["Body"],
+        ))
+        story.append(Spacer(1, 10))
+
+    # Recommendation
+    if classification == "HIGH":
+        rec = "Immediate remediation is recommended before deployment."
+    elif classification == "MEDIUM":
+        rec = "Address high-severity findings before deployment; review medium-severity items."
+    else:
+        rec = "The application demonstrates reasonable security posture. Monitor for emerging threats."
+    story.append(Paragraph(f"<b>Recommendation:</b> {rec}", styles["Body"]))
+    story.append(PageBreak())
+
+
+def _build_severity_chart(story, high, med, low):
+    """Horizontal bar chart using ReportLab Drawing — no external deps."""
+    from reportlab.graphics.shapes import Drawing, Rect, String
+
+    total = high + med + low
+    if total == 0:
+        story.append(Paragraph("No findings to chart.", ParagraphStyle("_", fontSize=9)))
+        return
+
+    chart_w = 400
+    bar_h = 22
+    drawing_h = 3 * (bar_h + 10) + 10
+    d = Drawing(chart_w + 100, drawing_h)
+
+    labels = [("HIGH", high, "#ff4d4f"), ("MEDIUM", med, "#faad14"), ("LOW", low, "#52c41a")]
+    max_val = max(high, med, low, 1)
+
+    for i, (label, count, color) in enumerate(labels):
+        y = drawing_h - (i + 1) * (bar_h + 10)
+        d.add(String(0, y + 6, f"{label} ({count})", fontSize=9, fontName="Helvetica-Bold"))
+        bar_w = (count / max_val) * (chart_w - 100) if max_val > 0 else 0
+        d.add(Rect(90, y, bar_w, bar_h, fillColor=colors.HexColor(color),
+                   strokeColor=None))
+
+    story.append(d)
+
+
+def _build_scope_and_limitations(story, styles, analysis):
+    story.append(Paragraph("Scope and Limitations", styles["H1"]))
+
+    dynamic_word = "included" if analysis.get("dynamic_enabled") else "excluded"
+    sbp_word = "included" if analysis.get("sbp_enabled") else "excluded"
+
+    scope = (
+        f"<b>What was analyzed:</b> Static inspection of AndroidManifest.xml "
+        f"(permissions, exported components, security flags), decompiled Java "
+        f"source code (regex-based pattern matching across {len(VULN_PATTERNS)} "
+        f"vulnerability patterns in 9 categories). "
+        f"Dynamic runtime analysis was <b>{dynamic_word}</b>. "
+        f"SBP banking compliance check was <b>{sbp_word}</b>."
+    )
+    story.append(Paragraph(scope, styles["Body"]))
+    story.append(Spacer(1, 8))
+
+    limitations = (
+        "<b>Limitations:</b> Pattern-based detection may miss obfuscated code "
+        "(ProGuard/R8). Native .so libraries are not analyzed. Server-side API "
+        "security is out of scope. Dynamic analysis is limited to ADB + logcat "
+        "+ monkey runner in an emulated environment (no Frida/Xposed "
+        "instrumentation). False positives are possible in regex-based detection."
+    )
+    story.append(Paragraph(limitations, styles["Body"]))
+    story.append(PageBreak())
+
+
+def _build_findings_summary_table(story, styles, findings, section_name):
+    """Summary table at the start of a findings section: Category | Count | Highest Severity."""
+    if not findings:
+        return
+    by_cat: dict[str, list] = {}
+    for f in findings:
+        by_cat.setdefault(f.get("category", "Uncategorised"), []).append(f)
+
+    rows = [["Category", "Count", "Highest Severity"]]
+    for cat in sorted(by_cat):
+        items = by_cat[cat]
+        highest = "LOW"
+        for item in items:
+            sev = (item.get("severity") or "").upper()
+            if _SEVERITY_RANK.get(sev, 9) < _SEVERITY_RANK.get(highest, 9):
+                highest = sev
+        rows.append([cat, str(len(items)), highest])
+    story.append(Paragraph(f"{section_name} — Summary", styles["H2"]))
+    story.append(_styled_table(rows, [7 * cm, 3 * cm, 4 * cm], severity_col=2))
+    story.append(Spacer(1, 8))
+
+
+# --------------------------------------------------------------------------
+# Body sections
 # --------------------------------------------------------------------------
 
 def _build_risk_summary(story, styles, risk):
@@ -396,6 +555,7 @@ def _build_manifest_section(story, styles, analysis, permissions, exported, mani
     else:
         story.append(Paragraph("No exported components recorded.", styles["Muted"]))
 
+    _build_findings_summary_table(story, styles, manifest_findings, "Manifest Findings")
     story.append(Paragraph(f"Manifest findings ({len(manifest_findings)})", styles["H2"]))
     for f in manifest_findings:
         _append_finding(story, styles, f)
@@ -404,6 +564,7 @@ def _build_manifest_section(story, styles, analysis, permissions, exported, mani
 
 def _build_source_section(story, styles, source_findings, *, educational_enabled: bool = False):
     story.append(Paragraph("Source Code Analysis", styles["H1"]))
+    _build_findings_summary_table(story, styles, source_findings, "Source Findings")
     if not source_findings:
         story.append(Paragraph("No source code findings.", styles["Muted"]))
         story.append(PageBreak())
@@ -458,6 +619,7 @@ def _append_educational_block(story, styles, finding):
 
 def _build_dynamic_section(story, styles, runtime_events, dynamic_findings):
     story.append(Paragraph("Dynamic Analysis", styles["H1"]))
+    _build_findings_summary_table(story, styles, dynamic_findings, "Dynamic Findings")
     story.append(Paragraph(
         f"Runtime events captured: <b>{len(runtime_events)}</b> &nbsp;|&nbsp; "
         f"Dynamic findings: <b>{len(dynamic_findings)}</b>", styles["Body"],
@@ -525,6 +687,54 @@ def _build_owasp_cwe_section(story, styles, risk):
         ))
     else:
         story.append(Paragraph("No CWE references attached.", styles["Muted"]))
+    story.append(PageBreak())
+
+
+# --------------------------------------------------------------------------
+# Conclusion & Recommendations (Phase 12)
+# --------------------------------------------------------------------------
+
+def _build_conclusion(story, styles, risk, analysis):
+    story.append(Paragraph("Conclusion and Recommendations", styles["H1"]))
+
+    classification = risk["classification"]
+    total = risk["total_findings"]
+    score = risk["normalized_score"]
+    apk_name = analysis.get("app_name") or analysis.get("apk_filename") or "the APK"
+
+    conclusion = (
+        f"The analysis of <b>{_str(apk_name)}</b> produced <b>{total}</b> "
+        f"findings with an overall risk classification of <b>{classification}</b> "
+        f"(normalized score: {score}/100)."
+    )
+    story.append(Paragraph(conclusion, styles["Body"]))
+    story.append(Spacer(1, 8))
+
+    # Actionable recommendations from top issues
+    story.append(Paragraph("Recommendations", styles["H2"]))
+    if risk["top_issues"]:
+        for i, f in enumerate(risk["top_issues"][:3], 1):
+            cat = f.get("category", "")
+            sev = f.get("severity", "")
+            title = _str(f.get("title"))
+            story.append(Paragraph(
+                f"{i}. <b>[{sev}] {title}</b> ({cat}) — Review and remediate "
+                f"this finding to reduce the application's attack surface.",
+                styles["Body"],
+            ))
+    else:
+        story.append(Paragraph(
+            "No critical findings requiring immediate attention.",
+            styles["Body"],
+        ))
+
+    story.append(Spacer(1, 10))
+    story.append(Paragraph(
+        f"This analysis was performed using SecureAPK v{config.TOOL_VERSION}. "
+        f"Results should be validated by a qualified security analyst before "
+        f"making deployment decisions.",
+        styles["Muted"],
+    ))
     story.append(PageBreak())
 
 

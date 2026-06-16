@@ -1,11 +1,13 @@
-// Upload-card behaviour: drag-and-drop, selected-file preview, and the
-// "Start Analysis" button stays disabled until an APK has been chosen.
-// Presentation only — no analysis logic here (Phase 10 redesign).
+// Upload-card behaviour: drag-and-drop, selected-file preview, ADB health
+// check, upload loading state, and double-submit prevention.
 (function () {
-  const dz = document.getElementById('dropzone');
-  const input = document.getElementById('apk_file');
-  const preview = document.getElementById('dropzone-file');
-  const startBtn = document.getElementById('start-analysis');
+  var dz = document.getElementById('dropzone');
+  var input = document.getElementById('apk_file');
+  var preview = document.getElementById('dropzone-file');
+  var startBtn = document.getElementById('start-analysis');
+  var form = document.getElementById('upload-form');
+  var dynamicToggle = document.getElementById('dynamic-toggle');
+  var adbStatus = document.getElementById('adb-status');
   if (!dz || !input) return;
 
   function humanSize(bytes) {
@@ -15,7 +17,7 @@
   }
 
   function refresh() {
-    const hasFile = !!(input.files && input.files[0]);
+    var hasFile = !!(input.files && input.files[0]);
     if (hasFile && preview) {
       preview.textContent = input.files[0].name + ' (' + humanSize(input.files[0].size) + ')';
       preview.hidden = false;
@@ -41,6 +43,53 @@
     }
   });
 
-  // Initialise on load (covers browser form-restore re-populating the input).
+  // ADB health check when dynamic toggle is activated
+  if (dynamicToggle && adbStatus) {
+    dynamicToggle.addEventListener('change', function () {
+      if (!dynamicToggle.checked) {
+        adbStatus.hidden = true;
+        return;
+      }
+      adbStatus.hidden = false;
+      adbStatus.className = 'adb-status adb-checking';
+      adbStatus.textContent = 'Checking emulator availability...';
+
+      fetch('/api/health/adb')
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (!data) {
+            adbStatus.className = 'adb-status adb-warn';
+            adbStatus.textContent = 'Could not check ADB status.';
+            return;
+          }
+          if (!data.adb_installed) {
+            adbStatus.className = 'adb-status adb-warn';
+            adbStatus.textContent = 'ADB is not installed — dynamic analysis will be skipped.';
+          } else if (!data.emulator_running) {
+            adbStatus.className = 'adb-status adb-warn';
+            adbStatus.textContent = 'No emulator detected — dynamic analysis will be skipped. Start an emulator via Android Studio → Device Manager.';
+          } else {
+            adbStatus.className = 'adb-status adb-ok';
+            adbStatus.textContent = 'Emulator detected: ' + data.emulator_serial;
+          }
+        })
+        .catch(function () {
+          adbStatus.className = 'adb-status adb-warn';
+          adbStatus.textContent = 'Could not check ADB status.';
+        });
+    });
+  }
+
+  // Upload loading state + double-submit prevention
+  if (form && startBtn) {
+    var submitted = false;
+    form.addEventListener('submit', function () {
+      if (submitted) { return false; }
+      submitted = true;
+      startBtn.disabled = true;
+      startBtn.innerHTML = '<span class="spinner"></span> Uploading…';
+    });
+  }
+
   refresh();
 })();
